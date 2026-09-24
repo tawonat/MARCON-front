@@ -1,4 +1,7 @@
 import { redirect } from "next/navigation";
-export default function Page() {
-  redirect("/warehouse");
+import { currentUser } from "@/lib/auth";
+
+export default async function Home() {
+  const user = await currentUser();
+  redirect(user ? `/inicio/${user.role}` : "/login");
 }
