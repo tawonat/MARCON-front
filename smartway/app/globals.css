@@ -1,26 +1,171 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --font-sans: "Inter", Arial, sans-serif;
+  --color-marcon-blue: #1d419c;
+  --color-marcon-green: #25b42f;
+  --color-marcon-coral: #ff6f61;
+  --color-marcon-bright: #3a71e6;
+  --color-marcon-muted: #929eb3;
+  --color-marcon-line: #e1e5ef;
+  --color-marcon-white: #ffffff;
+  --color-marcon-navy: #0f2038;
+  --color-marcon-subtle: #526177;
+  --color-marcon-canvas: #f6f8fc;
+  --color-marcon-danger: #b42318;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: var(--color-marcon-canvas);
+  color: var(--color-marcon-navy);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+:where(button, a, summary, input):focus-visible {
+  outline: 3px solid var(--color-marcon-bright);
+  outline-offset: 4px;
+}
+
+::selection {
+  background: var(--color-marcon-blue);
+  color: white;
+}
+
+.home-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px max(24px, 6vw);
+  background: var(--color-marcon-navy);
+  color: white;
+}
+
+.brand-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+}
+
+.secondary-button {
+  min-height: 44px;
+  padding: 12px 18px;
+  border: 1px solid var(--color-marcon-muted);
+  border-radius: 8px;
+  background: white;
+  color: var(--color-marcon-blue);
+}
+
+.secondary-button:hover {
+  background: var(--color-marcon-line);
+}
+
+.home-content {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 64px 24px;
+}
+
+.section-number {
+  color: var(--color-marcon-subtle);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.home-content > div {
+  margin-top: 24px;
+}
+.home-content p {
+  line-height: 1.8;
+}
+
+.home-content h1 {
+  margin: 20px 0;
+  font-size: clamp(32px, 5vw, 48px);
+  font-weight: 600;
+  letter-spacing: -1px;
+}
+
+.demo-badge {
+  display: inline-flex;
+  padding: 7px 10px;
+  border-radius: 50px;
+  background: var(--color-marcon-line);
+  color: var(--color-marcon-blue);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.welcome-card {
+  padding: clamp(20px, 4vw, 32px);
+  border: 1px solid var(--color-marcon-line);
+  border-radius: 12px;
+  background: white;
+}
+
+.welcome-card h2 {
+  margin: 16px 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.success-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.success-label::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-marcon-green);
+}
+
+.subtle {
+  color: var(--color-marcon-subtle);
+  font-size: 13px;
+}
+
+.catalog-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 46px;
+  margin: 16px 0;
+  padding: 12px 18px;
+  border-radius: 8px;
+  background: var(--color-marcon-blue);
+  color: white;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.catalog-cta:hover {
+  background: #17357d;
 }
