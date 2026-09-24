@@ -1,0 +1,64 @@
+"use client";
+import { createContext, useContext, useState } from "react";
+import {
+  initialRequests,
+  initialStock,
+  initialMovements,
+  type Movement,
+  type Request,
+  type Part,
+} from "@/lib/demo-data";
+type CartItem = {
+  code: string;
+  quantity: number;
+  priority: Request["priority"];
+  justification: string;
+};
+type Store = {
+  requests: Request[];
+  setRequests: React.Dispatch<React.SetStateAction<Request[]>>;
+  stock: Part[];
+  movements: Movement[];
+  setMovements: React.Dispatch<React.SetStateAction<Movement[]>>;
+  setStock: React.Dispatch<React.SetStateAction<Part[]>>;
+  staff: string[];
+  setStaff: React.Dispatch<React.SetStateAction<string[]>>;
+  cart: CartItem[];
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
+};
+const Context = createContext<Store | null>(null);
+export function DemoProvider({ children }: { children: React.ReactNode }) {
+  const [requests, setRequests] = useState(initialRequests);
+  const [stock, setStock] = useState(initialStock);
+  const [movements, setMovements] = useState(initialMovements);
+  const [staff, setStaff] = useState([
+    "Ana Souza",
+    "Carlos Lima",
+    "Marina Costa",
+    "João Pereira",
+  ]);
+  const [cart, setCart] = useState<CartItem[]>([]);
+  return (
+    <Context.Provider
+      value={{
+        requests,
+        setRequests,
+        stock,
+        setStock,
+        movements,
+        setMovements,
+        staff,
+        setStaff,
+        cart,
+        setCart,
+      }}
+    >
+      {children}
+    </Context.Provider>
+  );
+}
+export function useDemoStore() {
+  const store = useContext(Context);
+  if (!store) throw new Error("DemoProvider missing");
+  return store;
+}

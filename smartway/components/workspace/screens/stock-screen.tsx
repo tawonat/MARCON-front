@@ -1,0 +1,501 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  Boxes,
+  Package,
+  Pencil,
+  Plus,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
+import { heading, badge } from "../ui";
+import { useDemoStore } from "../demo-store";
+import type { Part } from "@/lib/demo-data";
+
+const warehouses = ["Central", "Bloco A", "Bloco B", "Bloco C"];
+const asNumber = (value: FormDataEntryValue | null) => Number(value ?? 0);
+
+export function StockScreen({
+  routePart,
+  setMessage,
+}: {
+  routePart?: string;
+  setMessage: React.Dispatch<React.SetStateAction<string>>;
+}) {
+  const { stock, setStock, requests, setMovements } = useDemoStore();
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Part | null>(null);
+  const [query, setQuery] = useState("");
+  const [warehouse, setWarehouse] = useState("Todos");
+  const [level, setLevel] = useState("Todos");
+  const [sort, setSort] = useState("name");
+
+  const visibleStock = useMemo(
+    () =>
+      stock
+        .filter((item) => {
+          const routeMatch =
+            !routePart ||
+            routePart === "all" ||
+            String(item.id) === routePart ||
+            item.code.toLocaleLowerCase("pt-BR") ===
+              routePart.toLocaleLowerCase("pt-BR");
+          const textMatch = (
+            item.name +
+            " " +
+            item.code +
+            " " +
+            (item.qrCode ?? "")
+          )
+            .toLocaleLowerCase("pt-BR")
+            .includes(query.toLocaleLowerCase("pt-BR"));
+          return (
+            routeMatch &&
+            textMatch &&
+            (warehouse === "Todos" || item.warehouse === warehouse) &&
+            (level === "Todos" ||
+              (level === "Crítico") === item.quantity < item.minimum)
+          );
+        })
+        .sort((a, b) =>
+          sort === "quantity-asc"
+            ? a.quantity - b.quantity
+            : sort === "quantity-desc"
+              ? b.quantity - a.quantity
+              : a.name.localeCompare(b.name, "pt-BR"),
+        ),
+    [stock, routePart, query, warehouse, level, sort],
+  );
+
+  function savePart(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const name = String(data.get("name") ?? "").trim();
+    const code = String(data.get("code") ?? "")
+      .trim()
+      .toUpperCase();
+    const qrCode = String(data.get("qrCode") ?? "")
+      .trim()
+      .toUpperCase();
+    const photo = data.get("photo") as File;
+    const quantity = asNumber(data.get("quantity"));
+    const minimum = asNumber(data.get("minimum"));
+    if (
+      !name ||
+      !code ||
+      !qrCode ||
+      !Number.isInteger(quantity) ||
+      quantity < 0 ||
+      !Number.isInteger(minimum) ||
+      minimum < 1 ||
+      stock.some(
+        (item) =>
+          item.id !== editing?.id &&
+          [item.code, item.qrCode ?? item.code].some(
+            (value) => value === code || value === qrCode,
+          ),
+      ) ||
+      (!editing && !photo?.size)
+    ) {
+      setMessage(
+        "Confira os campos, a foto e a exclusividade do ID e do QR Code.",
+      );
+      return;
+    }
+    const image = photo?.size ? URL.createObjectURL(photo) : editing?.image;
+    const part: Part = {
+      id: editing?.id ?? Math.max(0, ...stock.map((item) => item.id)) + 1,
+      name,
+      code,
+      qrCode,
+      quantity,
+      minimum,
+      warehouse: String(data.get("warehouse") ?? "Central"),
+      location: String(data.get("location") ?? "").trim(),
+      leadDays: asNumber(data.get("leadDays")),
+      estimatedCost: asNumber(data.get("cost")),
+      consumed30: editing?.consumed30 ?? 0,
+      previous30: editing?.previous30 ?? 0,
+      image,
+    };
+    setStock((items) =>
+      editing
+        ? items.map((item) => (item.id === editing.id ? part : item))
+        : [...items, part],
+    );
+    const change = quantity - (editing?.quantity ?? 0);
+    if (change !== 0)
+      setMovements((items) => [
+        {
+          id: Date.now(),
+          partCode: code,
+          type: change > 0 ? "entrada" : "saida",
+          quantity: Math.abs(change),
+          date: new Date().toISOString().slice(0, 10),
+          warehouse: part.warehouse,
+        },
+        ...items,
+      ]);
+    setEditing(null);
+    setFormOpen(false);
+    setMessage(
+      editing
+        ? "Peça atualizada nesta sessão."
+        : "Peça cadastrada nesta sessão.",
+    );
+  }
+
+  function remove(part: Part) {
+    const linked = requests.some(
+      (request) => request.code === part.code || request.material === part.name,
+    );
+    if (linked) {
+      setMessage(
+        "Esta peça possui requisições registradas. Edite os dados em vez de excluí-la.",
+      );
+      return;
+    }
+    if (!window.confirm("Excluir " + part.name + " do estoque desta sessão?"))
+      return;
+    setStock((items) => items.filter((item) => item.id !== part.id));
+    setMessage("Peça excluída desta sessão.");
+  }
+
+  return (
+    <>
+      <div className="section-heading-actions">
+        {heading(
+          "ALMOXARIFADO",
+          "Estoque de peças",
+          "Cadastre, edite e acompanhe o saldo dos almoxarifados.",
+        )}
+        <button
+          className="button primary"
+          onClick={() => {
+            setEditing(null);
+            setFormOpen((open) => !open);
+          }}
+        >
+          <Plus size={17} aria-hidden="true" /> Nova peça
+        </button>
+      </div>
+      <div className="stats stock-summary">
+        <div className="stat">
+          <span className="stat-icon blue">
+            <Boxes size={20} aria-hidden="true" />
+          </span>
+          <span>Peças cadastradas</span>
+          <strong>{stock.length}</strong>
+          <small>
+            {new Set(stock.map((item) => item.warehouse)).size} almoxarifados
+          </small>
+        </div>
+        <div className="stat">
+          <span className="stat-icon green">
+            <Package size={20} aria-hidden="true" />
+          </span>
+          <span>Unidades disponíveis</span>
+          <strong>{stock.reduce((sum, item) => sum + item.quantity, 0)}</strong>
+          <small>Saldo combinado</small>
+        </div>
+        <div className="stat">
+          <span className="stat-icon coral">
+            <TriangleAlert size={20} aria-hidden="true" />
+          </span>
+          <span>Abaixo do mínimo</span>
+          <strong>
+            {stock.filter((item) => item.quantity < item.minimum).length}
+          </strong>
+          <small>Necessitam reposição</small>
+        </div>
+      </div>
+      {formOpen && (
+        <form
+          key={editing?.id ?? "new"}
+          className="panel stock-entry"
+          onSubmit={savePart}
+        >
+          <div className="panel-head">
+            <div>
+              <h2>{editing ? "Editar peça" : "Cadastrar nova peça"}</h2>
+              <p>Informações de identificação, localização e reposição.</p>
+            </div>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                setFormOpen(false);
+                setEditing(null);
+              }}
+            >
+              Fechar
+            </button>
+          </div>
+          <div className="form-grid">
+            <label>
+              Nome da peça
+              <input
+                name="name"
+                defaultValue={editing?.name}
+                required
+                maxLength={80}
+              />
+            </label>
+            <label>
+              ID da peça
+              <input
+                name="code"
+                defaultValue={editing?.code}
+                required
+                maxLength={40}
+              />
+            </label>
+            <label>
+              Conteúdo do QR Code
+              <input
+                name="qrCode"
+                defaultValue={editing?.qrCode ?? editing?.code}
+                required
+                maxLength={80}
+                placeholder="Valor lido ao escanear o QR"
+              />
+              <small>Cadastre o ID gravado no QR da embalagem.</small>
+            </label>
+            <label>
+              Foto {editing && "(opcional ao editar)"}
+              <input
+                name="photo"
+                type="file"
+                accept="image/*"
+                required={!editing}
+              />
+            </label>
+            <label>
+              Almoxarifado
+              <select
+                name="warehouse"
+                defaultValue={editing?.warehouse ?? "Central"}
+              >
+                {warehouses.map((item) => (
+                  <option key={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Localização
+              <input
+                name="location"
+                defaultValue={editing?.location}
+                required
+                placeholder="Ex.: A-03"
+              />
+            </label>
+            <label>
+              Quantidade em estoque
+              <input
+                name="quantity"
+                type="number"
+                min="0"
+                required
+                defaultValue={editing?.quantity ?? 0}
+                inputMode="numeric"
+              />
+            </label>
+            <label>
+              Estoque mínimo
+              <input
+                name="minimum"
+                type="number"
+                min="1"
+                required
+                defaultValue={editing?.minimum ?? 1}
+              />
+            </label>
+            <label>
+              Prazo de reposição (dias)
+              <input
+                name="leadDays"
+                type="number"
+                min="1"
+                required
+                defaultValue={editing?.leadDays ?? 7}
+              />
+            </label>
+            <label>
+              Custo unitário estimado (R$)
+              <input
+                name="cost"
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                defaultValue={editing?.estimatedCost ?? 0}
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="submit" className="button primary">
+              {editing ? "Salvar alterações" : "Cadastrar peça"}
+            </button>
+          </div>
+        </form>
+      )}
+      <section className="panel">
+        <div className="panel-head">
+          <div>
+            <h2>Peças em estoque</h2>
+            <p>Filtre por identificação, almoxarifado e nível de reposição.</p>
+          </div>
+          <span className="count">{visibleStock.length} resultado(s)</span>
+        </div>
+        <div className="filter-grid stock-filter-grid">
+          <label>
+            Buscar peça ou ID
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Nome ou código QR"
+            />
+          </label>
+          <label>
+            Almoxarifado
+            <select
+              value={warehouse}
+              onChange={(event) => setWarehouse(event.target.value)}
+            >
+              <option>Todos</option>
+              {warehouses.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Nível
+            <select
+              value={level}
+              onChange={(event) => setLevel(event.target.value)}
+            >
+              <option>Todos</option>
+              <option>Crítico</option>
+              <option>Disponível</option>
+            </select>
+          </label>
+          <label>
+            Ordenar
+            <select
+              value={sort}
+              onChange={(event) => setSort(event.target.value)}
+            >
+              <option value="name">Nome A–Z</option>
+              <option value="quantity-asc">Menor saldo</option>
+              <option value="quantity-desc">Maior saldo</option>
+            </select>
+          </label>
+        </div>
+        {visibleStock.length ? (
+          <div className="stock-grid stock-result-grid">
+            {visibleStock.map((item) => (
+              <article
+                className={
+                  "stock-result" +
+                  (item.quantity < item.minimum ? " is-critical" : "")
+                }
+                key={item.id}
+              >
+                {item.image ? (
+                  <div
+                    className="part-photo"
+                    role="img"
+                    aria-label={"Foto de " + item.name}
+                    style={{ backgroundImage: "url(" + item.image + ")" }}
+                  />
+                ) : (
+                  <div className="part-placeholder" aria-hidden="true">
+                    <Package size={28} />
+                  </div>
+                )}
+                <div className="stock-result-content">
+                  <div className="card-line">
+                    <strong>{item.name}</strong>
+                    {badge(
+                      item.quantity < item.minimum ? "Crítico" : "Disponível",
+                    )}
+                  </div>
+                  <p>
+                    ID: {item.code} · QR: {item.qrCode ?? item.code} ·{" "}
+                    {item.warehouse} · posição {item.location}
+                  </p>
+                  <div className="stock-balance">
+                    <strong>{item.quantity}</strong>
+                    <span>
+                      unidades em estoque
+                      <br />
+                      Mínimo: {item.minimum}
+                    </span>
+                  </div>
+                  <div className="stock-mini-track">
+                    <span
+                      style={{
+                        width:
+                          Math.min(100, (item.quantity / item.minimum) * 100) +
+                          "%",
+                        background:
+                          item.quantity < item.minimum
+                            ? "var(--coral)"
+                            : "var(--green)",
+                      }}
+                    />
+                  </div>
+                  <div className="stock-result-actions">
+                    <Link
+                      className="link-button"
+                      href={"/warehouse/stock/peca/" + item.id}
+                    >
+                      Detalhes
+                    </Link>
+                    <button
+                      className="link-button"
+                      onClick={() => {
+                        setEditing(item);
+                        setFormOpen(true);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      aria-label={"Editar " + item.name}
+                    >
+                      <Pencil size={16} /> Editar
+                    </button>
+                    <button
+                      className="link-button danger"
+                      onClick={() => remove(item)}
+                      aria-label={"Excluir " + item.name}
+                    >
+                      <Trash2 size={16} /> Excluir
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty">
+            <h3>Nenhuma peça encontrada</h3>
+            <p>Altere os filtros ou cadastre uma nova peça.</p>
+            <button
+              className="button secondary"
+              onClick={() => {
+                setQuery("");
+                setWarehouse("Todos");
+                setLevel("Todos");
+              }}
+            >
+              Limpar filtros
+            </button>
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
