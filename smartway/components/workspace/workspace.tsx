@@ -9,6 +9,7 @@ import { RecommendationScreen } from "./screens/recommendation-screen";
 import { EmployeeRequestScreen } from "./screens/employee-request-screen";
 import { StaffScreen } from "./screens/staff-screen";
 import { StockScreen } from "./screens/stock-screen";
+import { ReturnsScreen } from "./screens/returns-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
 import { WarehouseDashboard } from "./screens/warehouse-dashboard";
 import { RequestsScreen } from "./screens/requests-screen";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/workspace-routes";
 import {
   Boxes,
+  RotateCcw,
   ChartNoAxesCombined,
   ClipboardList,
   History,
@@ -60,6 +62,7 @@ const roles: Record<
       { id: "dashboard", label: "Dashboard" },
       { id: "requisicoes", label: "Requisições" },
       { id: "estoque", label: "Estoque" },
+      { id: "devolucoes", label: "Devoluções" },
       { id: "compra", label: "Compra preditiva" },
       { id: "recomendacoes", label: "Recomendação de estoque" },
       { id: "historico", label: "Histórico" },
@@ -80,6 +83,7 @@ const pageIcons = {
   historico: History,
   solicitacoes: Inbox,
   estoque: Boxes,
+  devolucoes: RotateCcw,
   compra: ChartNoAxesCombined,
   recomendacoes: Lightbulb,
   nova: Plus,
@@ -618,6 +622,7 @@ export default function Workspace({
           {page === "estoque" && (
             <StockScreen routePart={routePart} setMessage={setMessage} />
           )}
+          {page === "devolucoes" && <ReturnsScreen setMessage={setMessage} />}
           {page === "compra" && (
             <PurchaseScreen purchaseItems={purchaseItems} />
           )}

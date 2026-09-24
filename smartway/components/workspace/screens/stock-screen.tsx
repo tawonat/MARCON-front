@@ -13,6 +13,7 @@ import {
 import { heading, badge } from "../ui";
 import { useDemoStore } from "../demo-store";
 import type { Part } from "@/lib/demo-data";
+import { boxLabel } from "@/lib/packaging";
 
 const warehouses = ["Central", "Bloco A", "Bloco B", "Bloco C"];
 const asNumber = (value: FormDataEntryValue | null) => Number(value ?? 0);
@@ -83,12 +84,15 @@ export function StockScreen({
     const photo = data.get("photo") as File;
     const quantity = asNumber(data.get("quantity"));
     const minimum = asNumber(data.get("minimum"));
+    const packSize = asNumber(data.get("packSize"));
     if (
       !name ||
       !code ||
       !qrCode ||
       !Number.isInteger(quantity) ||
       quantity < 0 ||
+      !Number.isInteger(packSize) ||
+      packSize < 1 ||
       !Number.isInteger(minimum) ||
       minimum < 1 ||
       stock.some(
@@ -112,6 +116,7 @@ export function StockScreen({
       code,
       qrCode,
       quantity,
+      packSize,
       minimum,
       warehouse: String(data.get("warehouse") ?? "Central"),
       location: String(data.get("location") ?? "").trim(),
@@ -305,6 +310,22 @@ export function StockScreen({
               />
             </label>
             <label>
+              Unidades por caixa
+              <input
+                name="packSize"
+                type="number"
+                min="1"
+                step="1"
+                inputMode="numeric"
+                required
+                defaultValue={editing?.packSize ?? 1}
+                aria-describedby="pack-size-help"
+              />
+              <small id="pack-size-help">
+                Ex.: 100 parafusos por caixa. O saldo continua em unidades.
+              </small>
+            </label>
+            <label>
               Estoque mínimo
               <input
                 name="minimum"
@@ -436,6 +457,9 @@ export function StockScreen({
                       Mínimo: {item.minimum}
                     </span>
                   </div>
+                  <p className="stock-boxes">
+                    {boxLabel(item.quantity, item.packSize)}
+                  </p>
                   <div className="stock-mini-track">
                     <span
                       style={{

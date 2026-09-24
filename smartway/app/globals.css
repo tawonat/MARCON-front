@@ -1829,3 +1829,150 @@ td select {
     width: 100%;
   }
 }
+
+.stock-boxes {
+  display: inline-block;
+  margin: 2px 0 12px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #edf3fb;
+  color: #214a7e;
+  font-size: 12px;
+  font-weight: 700;
+}
+.return-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 20px;
+}
+.return-form {
+  margin-bottom: 20px;
+}
+.return-note {
+  grid-column: span 2;
+}
+.return-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 18px 16px;
+  padding: 14px;
+  border-radius: 9px;
+  background: #edf3fb;
+}
+.return-preview strong {
+  color: var(--blue);
+  font-size: 20px;
+}
+.return-preview span {
+  color: var(--subtle);
+  font-size: 12px;
+}
+.return-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 18px 18px;
+}
+.return-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.return-filters {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+.return-list {
+  padding: 0 18px 18px;
+}
+.return-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.return-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 10px;
+  background: #eaf0ff;
+  color: var(--blue);
+}
+.return-item-main {
+  flex: 1;
+  min-width: 0;
+}
+.return-item-main strong,
+.return-item-main small,
+.return-item-main span {
+  display: block;
+}
+.return-item-main small,
+.return-item-main span {
+  margin-top: 5px;
+  color: var(--subtle);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.return-item-main p {
+  margin: 9px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.return-item-quantity {
+  text-align: right;
+}
+.return-item-quantity strong,
+.return-item-quantity small {
+  display: block;
+  white-space: nowrap;
+}
+.return-item-quantity small {
+  margin: 5px 0 8px;
+  color: var(--subtle);
+  font-size: 12px;
+}
+.badge-apto {
+  background: #e5f7e7;
+  color: #1b6722;
+}
+.badge-danificado {
+  background: #fee4e5;
+  color: #9b1023;
+}
+@media (max-width: 750px) {
+  .return-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+  .return-note {
+    grid-column: span 2;
+  }
+  .return-item {
+    flex-wrap: wrap;
+  }
+  .return-item-quantity {
+    width: 100%;
+    text-align: left;
+    padding-left: 54px;
+  }
+}
+@media (max-width: 500px) {
+  .return-summary,
+  .return-filters {
+    grid-template-columns: 1fr;
+  }
+  .return-note {
+    grid-column: span 1;
+  }
+  .return-actions .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .return-item-quantity {
+    padding-left: 0;
+  }
+}

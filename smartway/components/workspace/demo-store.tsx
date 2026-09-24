@@ -7,6 +7,7 @@ import {
   type Movement,
   type Request,
   type Part,
+  type ReturnRecord,
 } from "@/lib/demo-data";
 import { initialStaff, type StaffUser } from "@/lib/staff-data";
 type CartItem = {
@@ -22,6 +23,8 @@ type Store = {
   movements: Movement[];
   setMovements: React.Dispatch<React.SetStateAction<Movement[]>>;
   setStock: React.Dispatch<React.SetStateAction<Part[]>>;
+  returns: ReturnRecord[];
+  setReturns: React.Dispatch<React.SetStateAction<ReturnRecord[]>>;
   staff: StaffUser[];
   setStaff: React.Dispatch<React.SetStateAction<StaffUser[]>>;
   cart: CartItem[];
@@ -33,6 +36,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [stock, setStock] = useState(initialStock);
   const [movements, setMovements] = useState(initialMovements);
   const [staff, setStaff] = useState(initialStaff);
+  const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   return (
     <Context.Provider
@@ -45,6 +49,8 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         setMovements,
         staff,
         setStaff,
+        returns,
+        setReturns,
         cart,
         setCart,
       }}

@@ -6,6 +6,7 @@ export type Page =
   | "historico"
   | "solicitacoes"
   | "estoque"
+  | "devolucoes"
   | "compra"
   | "recomendacoes"
   | "nova";
@@ -31,6 +32,7 @@ export const pagePaths: Record<Role, Partial<Record<Page, string>>> = {
     dashboard: "/warehouse/dashboard",
     requisicoes: "/warehouse/requests",
     estoque: "/warehouse/stock/all/all",
+    devolucoes: "/warehouse/returns",
     compra: "/warehouse/dashboard?view=compra",
     recomendacoes: "/warehouse/dashboard?view=recomendacoes",
     historico: "/warehouse/history",

@@ -62,6 +62,7 @@ export type Part = {
   code: string;
   qrCode?: string;
   quantity: number;
+  packSize: number;
   minimum: number;
   consumed30: number;
   previous30: number;
@@ -78,6 +79,7 @@ export const initialStock: Part[] = [
     minimum: 50,
     id: 1,
     code: "ROL-6205-ZZ",
+    packSize: 10,
     consumed30: 68,
     previous30: 51,
     leadDays: 12,
@@ -91,6 +93,7 @@ export const initialStock: Part[] = [
     minimum: 20,
     id: 2,
     code: "PAR-M12-040",
+    packSize: 100,
     consumed30: 42,
     previous30: 35,
     leadDays: 7,
@@ -104,6 +107,7 @@ export const initialStock: Part[] = [
     minimum: 25,
     id: 3,
     code: "COR-A42",
+    packSize: 5,
     consumed30: 27,
     previous30: 18,
     leadDays: 15,
@@ -117,6 +121,7 @@ export const initialStock: Part[] = [
     minimum: 20,
     id: 4,
     code: "RET-35527",
+    packSize: 25,
     consumed30: 19,
     previous30: 25,
     leadDays: 10,
@@ -210,3 +215,17 @@ export const initialMovements: Movement[] = [
     requester: "João Pereira",
   },
 ];
+
+export type ReturnRecord = {
+  id: number;
+  partCode: string;
+  packSize: number;
+  quantity: number;
+  boxes: number;
+  looseUnits: number;
+  fromBlock: string;
+  returnedBy: string;
+  date: string;
+  condition: "Apto" | "Danificado";
+  note: string;
+};

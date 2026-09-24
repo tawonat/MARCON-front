@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import type { Movement, Part, Request } from "@/lib/demo-data";
+import { boxLabel } from "@/lib/packaging";
 import { heading, badge } from "../ui";
 
 type DetailKind =
@@ -471,7 +472,8 @@ export function WarehouseDashboard({
                   <div>
                     <strong>{item.name}</strong>
                     <small>
-                      {item.warehouse} · posição {item.location}
+                      {item.warehouse} · posição {item.location} ·{" "}
+                      {boxLabel(item.quantity, item.packSize)}
                     </small>
                   </div>
                   <div>
