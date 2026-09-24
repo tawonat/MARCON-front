@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { currentUser } from "@/lib/auth";
 import { roleLanding } from "@/lib/workspace-routes";
 import { BrandLogo } from "@/app/components/brand-logo";
+import { databaseEnabled } from "@/lib/db";
 
 const introductions: Record<string, string> = {
   funcionario:
@@ -52,11 +53,16 @@ export default async function ProfileHome({
           <Link href={roleLanding[user.role]} className="catalog-cta">
             Acessar painel <ArrowRight size={18} />
           </Link>
-          <Link href="/catalogo" className="catalog-cta">
+          <Link
+            href={
+              user.role === "funcionario" ? "/employee/request" : user.role === "almoxarifado" ? "/warehouse/stock/all/all" : roleLanding[user.role]
+            }
+            className="catalog-cta"
+          >
             Explorar catálogo <ArrowRight size={18} />
           </Link>
           <p className="subtle">
-            Ambiente de demonstração · {user.name} · Matrícula {user.id}
+            {databaseEnabled() ? "Conta ativa" : "Ambiente de demonstração"} · {user.name} · Matrícula {user.id}
           </p>
         </div>
       </section>

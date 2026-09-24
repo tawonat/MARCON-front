@@ -895,3 +895,181 @@
     background-position-x: -200%;
   }
 }
+
+/* Employee catalog shares the catalog visual language with the part inventory. */
+.employeePartPhoto {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  border-radius: inherit;
+}
+.employeeActions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+.employeeActions .primaryAction,
+.employeeActions .outlineButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+}
+.employeeActions .outlineButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.employeeFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.employeeFields label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  color: #526177;
+  font-size: 12px;
+  font-weight: 700;
+}
+.employeeFields input,
+.employeeFields select,
+.employeeFields textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 11px 13px;
+  border: 1px solid #c9d3e2;
+  border-radius: 9px;
+  background: #fff;
+  color: #0f2038;
+  font: inherit;
+  font-size: 14px;
+}
+.employeeFields input:read-only {
+  background: #eef2f8;
+}
+.employeeFields textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+.employeeWideField {
+  grid-column: 1/-1;
+}
+.employeeAvailable {
+  margin: 14px 0 0 !important;
+  color: #526177;
+  font-size: 12px;
+}
+.employeeCart {
+  margin-top: 36px;
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid #d9e3f1;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px #0f20380b;
+}
+.employeeCartHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.employeeCartHeading h2 {
+  margin: 6px 0;
+  font-size: 24px;
+}
+.employeeCartHeading p {
+  margin: 0;
+  color: #526177;
+}
+.employeeCartHeading .primaryAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.employeeCartRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 0;
+  border-top: 1px solid #e1e5ef;
+}
+.employeeCartRow strong,
+.employeeCartRow small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.employeeCartRow small {
+  margin-top: 4px;
+  color: #526177;
+}
+.employeeCartRow .outlineButton {
+  flex: none;
+}
+.stockPanel > small {
+  display: block;
+  margin-top: 12px;
+  color: #526177;
+}
+@media (max-width: 680px) {
+  .employeeFields {
+    grid-template-columns: 1fr;
+  }
+  .employeeActions > * {
+    width: 100%;
+  }
+  .employeeCartHeading .primaryAction {
+    width: 100%;
+    justify-content: center;
+  }
+  .employeeCartRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .employeeCartRow .outlineButton {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.employeeCatalogTools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cartShortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #eaf0ff;
+  color: #1d419c;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.cartShortcut:hover {
+  background: #dce8ff;
+}
+.employeeCart {
+  scroll-margin-top: 24px;
+}
+@media (max-width: 520px) {
+  .employeeCatalogTools {
+    justify-content: flex-end;
+  }
+  .employeeCatalogTools .count {
+    margin-top: 0;
+  }
+}

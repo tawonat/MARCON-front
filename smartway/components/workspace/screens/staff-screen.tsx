@@ -5,6 +5,7 @@ import { Pencil, Plus, UserRoundCheck, UserRoundX } from "lucide-react";
 import { heading } from "../ui";
 import { useDemoStore } from "../demo-store";
 import type { StaffRole, StaffUser } from "@/lib/staff-data";
+import { BLOCKS } from "@/lib/inventory";
 
 const roles: StaffRole[] = [
   "Administrador",
@@ -18,6 +19,7 @@ const emptyUser: StaffUser = {
   email: "",
   sector: "",
   role: "Funcionário",
+  block: "Bloco A",
   active: true,
 };
 
@@ -26,14 +28,16 @@ export function StaffScreen({
 }: {
   setMessage: React.Dispatch<React.SetStateAction<string>>;
 }) {
-  const { staff, setStaff } = useDemoStore();
+  const { staff, setStaff, persistent, runAction } = useDemoStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffUser>(emptyUser);
+  const [password, setPassword] = useState("");
   const [idFilter, setIdFilter] = useState("");
   const [emailFilter, setEmailFilter] = useState("");
   const [sectorFilter, setSectorFilter] = useState("Todos");
   const [roleFilter, setRoleFilter] = useState("Todas");
+  const [blockFilter, setBlockFilter] = useState("Todos");
   const [statusFilter, setStatusFilter] = useState("Todos");
 
   const sectors = ["Todos", ...new Set(staff.map((user) => user.sector))];
@@ -43,6 +47,7 @@ export function StaffScreen({
       user.email.toLowerCase().includes(emailFilter.trim().toLowerCase()) &&
       (sectorFilter === "Todos" || user.sector === sectorFilter) &&
       (roleFilter === "Todas" || user.role === roleFilter) &&
+      (blockFilter === "Todos" || user.block === blockFilter) &&
       (statusFilter === "Todos" || (statusFilter === "Ativos") === user.active),
   );
 
@@ -56,10 +61,11 @@ export function StaffScreen({
   function openForm(user?: StaffUser) {
     setEditingId(user?.id ?? null);
     setForm(user ? { ...user } : { ...emptyUser });
+    setPassword("");
     setFormOpen(true);
   }
 
-  function saveUser(event: React.FormEvent<HTMLFormElement>) {
+  async function saveUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const user: StaffUser = {
       ...form,
@@ -67,9 +73,14 @@ export function StaffScreen({
       name: form.name.trim(),
       email: form.email.trim().toLowerCase(),
       sector: form.sector.trim(),
+      block: ["Funcionário", "Líder de bloco"].includes(form.role) ? form.block : undefined,
     };
     if (!user.id || !user.name || !user.email || !user.sector) {
       setMessage("Preencha ID, nome, e-mail e setor.");
+      return;
+    }
+    if (["Funcionário", "Líder de bloco"].includes(user.role) && !user.block) {
+      setMessage("Selecione o bloco de atuação do usuário.");
       return;
     }
     if (staff.some((item) => item.id !== editingId && item.id === user.id)) {
@@ -83,6 +94,16 @@ export function StaffScreen({
       )
     ) {
       setMessage("Este e-mail já está cadastrado.");
+      return;
+    }
+    if (persistent) {
+      try {
+        await runAction({ type: "saveUser", user, editingId, password });
+        setMessage(editingId ? "Usuário atualizado." : "Usuário cadastrado.");
+        setFormOpen(false); setEditingId(null); setPassword("");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível salvar o usuário.");
+      }
       return;
     }
     setStaff((items) =>
@@ -99,7 +120,16 @@ export function StaffScreen({
     setEditingId(null);
   }
 
-  function toggleActive(user: StaffUser) {
+  async function toggleActive(user: StaffUser) {
+    if (persistent) {
+      try {
+        await runAction({ type: "toggleUser", id: user.id, active: !user.active });
+        setMessage(user.active ? "Usuário desativado." : "Usuário reativado.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível alterar o usuário.");
+      }
+      return;
+    }
     setStaff((items) =>
       items.map((item) =>
         item.id === user.id ? { ...item, active: !item.active } : item,
@@ -143,7 +173,7 @@ export function StaffScreen({
           <div className="panel-head">
             <div>
               <h2>{editingId ? "Editar usuário" : "Cadastrar usuário"}</h2>
-              <p>Dados demonstrativos. As alterações ficam nesta sessão.</p>
+              <p>{persistent ? "Dados salvos no MySQL após confirmação." : "Dados demonstrativos. As alterações ficam nesta sessão."}</p>
             </div>
             <button
               type="button"
@@ -231,6 +261,21 @@ export function StaffScreen({
                 <option>Desativado</option>
               </select>
             </label>
+            {["Funcionário", "Líder de bloco"].includes(form.role) && (
+              <label>Bloco de atuação
+                <select value={form.block ?? ""} onChange={(event) => updateField("block", event.target.value)} required>
+                  <option value="">Selecione</option>
+                  {BLOCKS.map((block) => <option key={block}>{block}</option>)}
+                </select>
+              </label>
+            )}
+            {persistent && (
+              <label>{editingId ? "Nova senha (opcional)" : "Senha inicial"}
+                <input type="password" autoComplete="new-password" minLength={12} required={!editingId}
+                  value={password} onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Pelo menos 12 caracteres" />
+              </label>
+            )}
           </div>
           <div className="staff-form-actions">
             <button className="button primary" type="submit">
@@ -243,7 +288,7 @@ export function StaffScreen({
         <div className="panel-head">
           <div>
             <h2>Usuários cadastrados</h2>
-            <p>Filtre por ID, e-mail, setor, função e status.</p>
+            <p>Filtre por ID, e-mail, setor, função, bloco e status.</p>
           </div>
           <span className="count">{visibleStaff.length} resultado(s)</span>
         </div>
@@ -298,6 +343,12 @@ export function StaffScreen({
               <option>Desativados</option>
             </select>
           </label>
+          <label>Bloco
+            <select value={blockFilter} onChange={(event) => setBlockFilter(event.target.value)}>
+              <option>Todos</option>
+              {BLOCKS.map((block) => <option key={block}>{block}</option>)}
+            </select>
+          </label>
         </div>
         <div className="filter-footer">
           <button
@@ -307,6 +358,7 @@ export function StaffScreen({
               setEmailFilter("");
               setSectorFilter("Todos");
               setRoleFilter("Todas");
+              setBlockFilter("Todos");
               setStatusFilter("Todos");
             }}
           >
@@ -335,7 +387,7 @@ export function StaffScreen({
                     ID {user.id} · {user.email}
                   </span>
                   <small>
-                    {user.sector} · {user.role}
+                    {user.sector} · {user.role}{user.block ? " · " + user.block : ""}
                   </small>
                 </div>
                 <div className="staff-card-actions">

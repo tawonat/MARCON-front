@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { findCatalogItem } from "@/lib/catalog";
 import { demoRequests } from "@/lib/demo-requests";
+import { databaseEnabled } from "@/lib/db";
+import { workspaceSnapshot } from "@/lib/workspace-db";
+import { ActionError, executeWorkspaceAction } from "@/lib/workspace-actions";
 
 export async function GET() {
   const user = await currentUser();
@@ -11,6 +14,13 @@ export async function GET() {
       { error: "Faça login para consultar requisições." },
       { status: 401 },
     );
+  }
+  if (databaseEnabled()) {
+    const requests = (await workspaceSnapshot(user)).requests.map((item) => ({
+      protocol: `REQ-${item.id}`, userId: user.id, itemId: item.code,
+      quantity: item.quantity, status: item.status, createdAt: item.date,
+    }));
+    return NextResponse.json({ requests }, { headers: { "Cache-Control": "no-store" } });
   }
   const requests = Array.from(demoRequests.values()).filter(
     (item) => item.userId === user.id,
@@ -60,6 +70,18 @@ export async function POST(request: NextRequest) {
   const { itemId, quantity } = body;
   if (typeof itemId !== "string") {
     return NextResponse.json({ error: "Item inválido." }, { status: 400 });
+  }
+  if (databaseEnabled()) {
+    try {
+      const result = await executeWorkspaceAction(user, {
+        type: "createRequests",
+        entries: [{ code: itemId, quantity, priority: "Leve", justification: "" }],
+      }) as { ids: number[] };
+      return NextResponse.json({ protocol: `REQ-${result.ids[0]}`, itemId, quantity }, { status: 201 });
+    } catch (error) {
+      if (error instanceof ActionError) return NextResponse.json({ error: error.message }, { status: error.status });
+      throw error;
+    }
   }
   const item = findCatalogItem(itemId);
   if (!item)

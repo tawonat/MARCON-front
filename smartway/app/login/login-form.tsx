@@ -17,7 +17,7 @@ import { useLogin } from "./use-login";
 import { RfidAccess } from "./components/rfid-access";
 import styles from "./login.module.css";
 
-export default function LoginForm({ children }: { children: ReactNode }) {
+export default function LoginForm({ children, demoMode = true }: { children: ReactNode; demoMode?: boolean }) {
   const {
     isBusy,
     status,
@@ -143,7 +143,7 @@ export default function LoginForm({ children }: { children: ReactNode }) {
               )}
             </button>
           </form>
-          <div className={styles.alternativeAccess}>
+          {demoMode && <div className={styles.alternativeAccess}>
             <div className={styles.divider}>
               <span />
               ou entre com RFID
@@ -162,12 +162,11 @@ export default function LoginForm({ children }: { children: ReactNode }) {
             <p className={styles.rfidNote}>
               Leitura simulada do cartão, sem confirmação por senha.
             </p>
-          </div>
+          </div>}
         </>
       )}
       <p className={styles.securityNote}>
-        <ShieldCheck size={15} aria-hidden="true" /> Acesso por credenciais ou
-        cartão RFID.
+        <ShieldCheck size={15} aria-hidden="true" /> {demoMode ? "Acesso por credenciais ou cartão RFID." : "Acesso por credenciais protegidas."}
       </p>
       {children}
     </>

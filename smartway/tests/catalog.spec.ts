@@ -12,7 +12,7 @@ test("catalog search finds names and IDs; detail starts a request", async ({
   page,
 }) => {
   await signIn(page);
-  await page.getByRole("link", { name: "Explorar catálogo" }).click();
+  await page.goto("/catalogo");
   await expect(page).toHaveURL("/catalogo");
   await expect(page.getByText("42 unidades disponíveis")).toBeVisible();
 

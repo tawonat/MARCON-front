@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { DemoProvider } from "@/components/workspace/demo-store";
+import { databaseEnabled } from "@/lib/db";
 
 export const metadata: Metadata = {
   title: "MARCON | Portal e gestão de materiais",
@@ -15,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body>
-        <DemoProvider>{children}</DemoProvider>
+        <DemoProvider persistent={databaseEnabled()}>{children}</DemoProvider>
       </body>
     </html>
   );

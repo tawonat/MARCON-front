@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDemoStore } from "./demo-store";
+import { useEmployeeName, useEmployeeBlock } from "./employee-identity";
 import { badge } from "./ui";
 import { PurchaseScreen } from "./screens/purchase-screen";
 import { RecommendationScreen } from "./screens/recommendation-screen";
+import { StockMovementHistory } from "./screens/stock-movement-history";
+import { balanceOf, warehouseForBlock } from "@/lib/inventory";
 import { EmployeeRequestScreen } from "./screens/employee-request-screen";
 import { StaffScreen } from "./screens/staff-screen";
 import { StockScreen } from "./screens/stock-screen";
@@ -13,13 +16,8 @@ import { ReturnsScreen } from "./screens/returns-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
 import { WarehouseDashboard } from "./screens/warehouse-dashboard";
 import { RequestsScreen } from "./screens/requests-screen";
-import { initialStock, type Request, type Part } from "@/lib/demo-data";
-import {
-  pathFor,
-  roleLanding,
-  type Role,
-  type Page,
-} from "@/lib/workspace-routes";
+import { type Request, type Part } from "@/lib/demo-data";
+import { pathFor, type Role, type Page } from "@/lib/workspace-routes";
 import {
   Boxes,
   RotateCcw,
@@ -117,30 +115,12 @@ export default function Workspace({
   dashboardView?: string;
 }) {
   const router = useRouter();
+  const employeeName = useEmployeeName();
+  const employeeBlock = useEmployeeBlock();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const {
-    requests,
-    setRequests,
-    stock,
-    setStock,
-    movements,
-    setMovements,
-    cart,
-    setCart,
-  } = useDemoStore();
-  const [selectedPart, setSelectedPart] = useState(
-    routePart && routePart !== "all"
-      ? (stock.find(
-          (part) =>
-            String(part.id) === routePart ||
-            part.code.toLowerCase() === routePart.toLowerCase(),
-        )?.code ?? initialStock[0].code)
-      : initialStock[0].code,
-  );
-  const [requestQuantity, setRequestQuantity] = useState(1);
-  const [requestPriority, setRequestPriority] =
-    useState<Request["priority"]>("Leve");
+  const { requests, setRequests, stock, setStock, movements, setMovements, balances, setBalances, persistent, runAction } =
+    useDemoStore();
   const [detail, setDetail] = useState<Request | null>(null);
   const [qrCode, setQrCode] = useState("");
   const [search, setSearch] = useState("");
@@ -153,9 +133,9 @@ export default function Workspace({
     current.pages.find((item) => item.id === page) ?? current.pages[0];
   const roleRequests = requests.filter((item) =>
     role === "funcionario"
-      ? item.person === "Você"
+      ? item.person === employeeName || item.person === "Você"
       : role === "lider"
-        ? item.block === "Bloco A"
+        ? item.block === employeeBlock
         : true,
   );
   const shownRequests = roleRequests.filter(
@@ -178,9 +158,6 @@ export default function Workspace({
     role === "almoxarifado" && page === "requisicoes"
       ? sortedRequests.filter((item) => item.status === "Aprovada")
       : shownRequests;
-  const selectedStock =
-    stock.find((part) => part.code === selectedPart) ?? stock[0];
-  const atypical = requestQuantity > 10 || requestPriority === "Urgente";
   const purchaseItems = stock
     .map((item) => ({ item, projection: forecast(item) }))
     .filter(({ projection }) => projection.buy > 0)
@@ -223,17 +200,12 @@ export default function Workspace({
     setSearch("");
     setStatusFilter("Todas");
   }
-  function changeRole(next: Role) {
-    router.push(roleLanding[next]);
-    setDrawerOpen(false);
-    setMessage("");
-  }
-  function updateStatus(id: number, status: Request["status"]) {
+  async function updateStatus(id: number, status: Request["status"]): Promise<boolean> {
     const request = requests.find((item) => item.id === id);
     if (!request) return false;
     const leaderAllowed =
       role === "lider" &&
-      request.block === "Bloco A" &&
+      request.block === employeeBlock &&
       request.status === "Pendente" &&
       ["Aprovada", "Cancelada"].includes(status);
     const warehouseAllowed =
@@ -244,6 +216,17 @@ export default function Workspace({
       setMessage("Ação indisponível para este perfil ou etapa.");
       return false;
     }
+    if (persistent) {
+      try {
+        await runAction({ type: "changeRequestStatus", id, status, qrCode: qrCode.trim() });
+        setQrCode("");
+        setMessage("Situação atualizada.");
+        return true;
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível atualizar a requisição.");
+        return false;
+      }
+    }
     if (status === "Entregue") {
       const part = stock.find(
         (item) => item.code === request.code || item.name === request.material,
@@ -252,7 +235,10 @@ export default function Workspace({
         setMessage("Confira o código QR/ID da embalagem antes da baixa.");
         return false;
       }
-      if (part.quantity < request.quantity) {
+      const source = warehouseForBlock(request.block);
+      const sourceBalance = balanceOf(balances, part.code, source);
+      const actualSource = sourceBalance >= request.quantity ? source : "Central";
+      if (balanceOf(balances, part.code, actualSource) < request.quantity) {
         setMessage("Saldo insuficiente para esta separação.");
         return false;
       }
@@ -263,6 +249,7 @@ export default function Workspace({
             : item,
         ),
       );
+      setBalances((items) => items.map((item) => item.partCode === part.code && item.warehouse === actualSource ? { ...item, quantity: item.quantity - request.quantity } : item));
       setMovements((items) => [
         {
           id: Date.now(),
@@ -270,7 +257,7 @@ export default function Workspace({
           type: "saida",
           quantity: request.quantity,
           date: new Date().toISOString().slice(0, 10),
-          warehouse: part.warehouse,
+          warehouse: actualSource,
           block: request.block,
           requester: request.person,
         },
@@ -320,101 +307,6 @@ export default function Workspace({
     link.download = "marcon-requisicoes.csv";
     link.click();
     URL.revokeObjectURL(url);
-  }
-  function createRequest(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const material = String(data.get("material") || "").trim();
-    const quantity = Number(data.get("quantity"));
-    const part = stock.find((item) => item.code === material);
-    const justification = String(data.get("justification") || "").trim();
-    if (
-      !part ||
-      quantity < 1 ||
-      quantity > part.quantity ||
-      quantity !== Number(data.get("confirmQuantity"))
-    ) {
-      setMessage("Confira a peça, o saldo e a confirmação da quantidade.");
-      return;
-    }
-    if (
-      (quantity > 10 || data.get("priority") === "Urgente") &&
-      !justification
-    ) {
-      setMessage("Informe a justificativa para este pedido atípico.");
-      return;
-    }
-    setRequests((items) => [
-      {
-        id: Math.max(...items.map((item) => item.id)) + 1,
-        material: part.name,
-        code: part.code,
-        justification,
-        quantity,
-        person: "Você",
-        block: "Bloco A",
-        date: new Date().toLocaleDateString("pt-BR"),
-        status: "Pendente",
-        priority: data.get("priority") as Request["priority"],
-      },
-      ...items,
-    ]);
-    form.reset();
-    setRequestQuantity(1);
-    setRequestPriority("Leve");
-    navigate("historico");
-    setMessage("Requisição criada nesta demonstração.");
-  }
-  function addCart() {
-    const explanation =
-      (
-        document.querySelector(
-          "[name=justification]",
-        ) as HTMLTextAreaElement | null
-      )?.value.trim() ?? "";
-    if (requestQuantity < 1 || requestQuantity > selectedStock.quantity) {
-      setMessage("Quantidade acima do saldo disponível.");
-      return;
-    }
-    if (atypical && !explanation) {
-      setMessage("Justifique o pedido atípico antes de adicionar ao carrinho.");
-      return;
-    }
-    setCart((items) => [
-      ...items,
-      {
-        code: selectedPart,
-        quantity: requestQuantity,
-        priority: requestPriority,
-        justification: explanation,
-      },
-    ]);
-    setMessage("Peça adicionada ao carrinho desta sessão.");
-  }
-  function checkoutCart() {
-    if (!cart.length) return;
-    setRequests((items) => [
-      ...cart.map((entry, index) => {
-        const part = stock.find((piece) => piece.code === entry.code)!;
-        return {
-          id: Math.max(...items.map((item) => item.id)) + index + 1,
-          material: part.name,
-          code: part.code,
-          quantity: entry.quantity,
-          person: "Você",
-          block: "Bloco A",
-          date: new Date().toLocaleDateString("pt-BR"),
-          status: "Pendente" as const,
-          priority: entry.priority,
-          justification: entry.justification,
-        };
-      }),
-      ...items,
-    ]);
-    setCart([]);
-    navigate("historico");
-    setMessage("Solicitações do carrinho registradas nesta sessão.");
   }
   function allowedStatuses(item: Request): Request["status"][] {
     if (role === "lider" && item.status === "Pendente")
@@ -516,7 +408,7 @@ export default function Workspace({
             <span className="avatar">{current.name[0]}</span>
             <div>
               <strong>{current.name}</strong>
-              <small>Visualização de demonstração</small>
+              <small>{persistent ? "Conta ativa" : "Visualização de demonstração"}</small>
             </div>
           </div>
         </div>
@@ -537,19 +429,7 @@ export default function Workspace({
               Área de trabalho <b>/</b> <strong>{active.label}</strong>
             </span>
           </div>
-          <label className="role-control">
-            <span>Visualizar como</span>
-            <select
-              value={role}
-              onChange={(event) => changeRole(event.target.value as Role)}
-              aria-label="Selecionar perfil para demonstração"
-            >
-              <option value="admin">Admin</option>
-              <option value="lider">Líder de bloco</option>
-              <option value="almoxarifado">Almoxarifado</option>
-              <option value="funcionario">Funcionário</option>
-            </select>
-          </label>
+          <span className="role-control"><strong>{current.name}</strong></span>
         </header>
         <main className="content">
           {message && (
@@ -603,21 +483,8 @@ export default function Workspace({
               requestCard={requestCard}
             />
           )}
-          {page === "nova" && (
-            <EmployeeRequestScreen
-              selectedPart={selectedPart}
-              setSelectedPart={setSelectedPart}
-              selectedStock={selectedStock}
-              requestQuantity={requestQuantity}
-              setRequestQuantity={setRequestQuantity}
-              requestPriority={requestPriority}
-              setRequestPriority={setRequestPriority}
-              atypical={atypical}
-              createRequest={createRequest}
-              addCart={addCart}
-              checkoutCart={checkoutCart}
-            />
-          )}
+          {page === "historico" && (role === "admin" || role === "almoxarifado") && <StockMovementHistory />}
+          {page === "nova" && <EmployeeRequestScreen routePart={routePart} />}
           {page === "funcionarios" && <StaffScreen setMessage={setMessage} />}
           {page === "estoque" && (
             <StockScreen routePart={routePart} setMessage={setMessage} />
@@ -626,7 +493,7 @@ export default function Workspace({
           {page === "compra" && (
             <PurchaseScreen purchaseItems={purchaseItems} />
           )}
-          {page === "recomendacoes" && <RecommendationScreen stock={stock} />}
+          {page === "recomendacoes" && <RecommendationScreen />}
         </main>
       </div>
       {detail && (

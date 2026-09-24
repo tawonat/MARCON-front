@@ -11,7 +11,7 @@ import { heading, badge } from "../ui";
 import { useDemoStore } from "../demo-store";
 import type { ReturnRecord } from "@/lib/demo-data";
 
-const blocks = ["Bloco A", "Bloco B", "Bloco C", "Almoxarifado central"];
+const blocks = ["Bloco A", "Bloco B", "Bloco C", "Bloco D"];
 const today = () => new Date().toISOString().slice(0, 10);
 const displayDate = (date: string) => date.split("-").reverse().join("/");
 
@@ -20,7 +20,7 @@ export function ReturnsScreen({
 }: {
   setMessage: React.Dispatch<React.SetStateAction<string>>;
 }) {
-  const { stock, setStock, returns, setReturns, setMovements } = useDemoStore();
+  const { stock, setStock, setBalances, returns, setReturns, setMovements, persistent, runAction } = useDemoStore();
   const [partCode, setPartCode] = useState(stock[0]?.code ?? "");
   const [boxes, setBoxes] = useState("");
   const [looseUnits, setLooseUnits] = useState("");
@@ -55,7 +55,7 @@ export function ReturnsScreen({
     .filter((item) => item.condition === "Apto")
     .reduce((sum, item) => sum + item.quantity, 0);
 
-  function registerReturn(event: React.FormEvent<HTMLFormElement>) {
+  async function registerReturn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
       !part ||
@@ -70,6 +70,16 @@ export function ReturnsScreen({
       setMessage(
         "Confira a peça, a quantidade de caixas e as unidades avulsas.",
       );
+      return;
+    }
+    if (persistent) {
+      try {
+        await runAction({ type: "registerReturn", code: part.code, block: fromBlock, quantity, condition, returnedBy: returnedBy.trim(), note: note.trim() });
+        setBoxes(""); setLooseUnits(""); setReturnedBy(""); setNote("");
+        setMessage(condition === "Apto" ? "Devolução registrada e estoque atualizado." : "Devolução danificada registrada sem entrada no estoque.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível registrar a devolução.");
+      }
       return;
     }
     const record: ReturnRecord = {
@@ -87,6 +97,9 @@ export function ReturnsScreen({
     };
     setReturns((items) => [record, ...items]);
     if (condition === "Apto") {
+      setBalances((items) => items.some((item) => item.partCode === part.code && item.warehouse === "Central")
+        ? items.map((item) => item.partCode === part.code && item.warehouse === "Central" ? { ...item, quantity: item.quantity + quantity } : item)
+        : [...items, { partCode: part.code, warehouse: "Central", quantity }]);
       setStock((items) =>
         items.map((item) =>
           item.code === part.code
@@ -101,7 +114,7 @@ export function ReturnsScreen({
           type: "entrada",
           quantity,
           date: record.date,
-          warehouse: part.warehouse,
+          warehouse: "Central",
           block: fromBlock,
           requester: returnedBy.trim(),
         },

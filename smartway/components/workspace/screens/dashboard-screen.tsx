@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useState } from "react";
 import {
   ClipboardList,
   Clock3,
@@ -9,6 +10,8 @@ import {
 import type { Request, Part } from "@/lib/demo-data";
 import type { Role, Page } from "@/lib/workspace-routes";
 import { heading, badge } from "../ui";
+import { useDemoStore } from "../demo-store";
+import { WAREHOUSES, balanceOf } from "@/lib/inventory";
 export function DashboardScreen({
   role,
   current,
@@ -30,6 +33,13 @@ export function DashboardScreen({
   navigate: (page: Page) => void;
   NavIcon: React.ComponentType<{ page: Page }>;
 }) {
+  const { balances } = useDemoStore();
+  const [chart, setChart] = useState<"status" | "blocos" | "estoque">("status");
+  const statusRows = ["Pendente", "Em análise", "Aprovada", "Entregue", "Cancelada"].map((name) => ({ name, value: roleRequests.filter((item) => item.status === name).length }));
+  const blockRows = ["Bloco A", "Bloco B", "Bloco C", "Bloco D"].map((name) => ({ name, value: roleRequests.filter((item) => item.block === name).length }));
+  const warehouseRows = WAREHOUSES.map((name) => ({ name, value: stock.reduce((sum, part) => sum + balanceOf(balances, part.code, name), 0) }));
+  const chartRows = chart === "status" ? statusRows : chart === "blocos" ? blockRows : warehouseRows;
+  const chartMax = Math.max(1, ...chartRows.map((row) => row.value));
   const dashboardTitle: Record<string, string> = {
     warehouse: "Almoxarifado",
     stock: "Estoque",
@@ -169,6 +179,14 @@ export function DashboardScreen({
         )}
       </div>
       <div className="dashboard-grid">
+        <section className="panel visual-panel">
+          <div className="panel-head"><div><h2>Entenda os números</h2><p>Selecione uma visão para comparar os dados.</p></div></div>
+          <div className="dashboard-subnav" role="tablist" aria-label="Visualização dos dados">
+            {([["status", "Etapas"], ["blocos", "Blocos"], ["estoque", "Estoque"]] as const).map(([value, label]) => <button type="button" role="tab" aria-selected={chart === value} className={chart === value ? "active" : ""} key={value} onClick={() => setChart(value)}>{label}</button>)}
+          </div>
+          <div className="visual-bars">{chartRows.map((row) => <div className="visual-bar" key={row.name}><span>{row.name}</span><div className="metric-track"><i className={row.name === "Pendente" ? "exit" : "entry"} style={{ width: `${row.value / chartMax * 100}%` }} /></div><strong>{row.value}</strong></div>)}</div>
+          <small>{chart === "estoque" ? "Unidades disponíveis em cada almoxarifado" : "Quantidade de requisições em cada grupo"}</small>
+        </section>
         <section className="panel">
           <div className="panel-head">
             <div>

@@ -1,19 +1,29 @@
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { findCatalogItem } from "@/lib/catalog";
+import { databaseEnabled } from "@/lib/db";
+import { workspaceSnapshot } from "@/lib/workspace-db";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!(await currentUser())) {
+  const user = await currentUser();
+  if (!user) {
     return NextResponse.json(
       { error: "Acesso não autorizado." },
       { status: 401 },
     );
   }
   const { id } = await params;
-  const item = findCatalogItem(id);
+  const item = databaseEnabled()
+    ? (await workspaceSnapshot(user)).stock.filter((part) => part.code === id || String(part.id) === id)
+      .map((part) => ({
+        id: part.code, name: part.name, category: "Peças", stock: part.quantity,
+        unit: "unidades", location: part.location, description: part.name,
+        specification: `QR/ID ${part.qrCode ?? part.code}`,
+      }))[0]
+    : findCatalogItem(id);
   if (!item) {
     return NextResponse.json(
       { error: "Item não encontrado." },

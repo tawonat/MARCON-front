@@ -7,6 +7,7 @@ export type StaffUser = {
   email: string;
   sector: string;
   role: StaffRole;
+  block?: string;
   active: boolean;
 };
 
@@ -17,6 +18,7 @@ export const initialStaff: StaffUser[] = [
     email: "ana.souza@marcon.example",
     sector: "Usinagem",
     role: "Funcionário",
+    block: "Bloco A",
     active: true,
   },
   {
@@ -25,6 +27,7 @@ export const initialStaff: StaffUser[] = [
     email: "carlos.lima@marcon.example",
     sector: "Montagem",
     role: "Líder de bloco",
+    block: "Bloco B",
     active: true,
   },
   {
@@ -41,6 +44,7 @@ export const initialStaff: StaffUser[] = [
     email: "joao.pereira@marcon.example",
     sector: "Manutenção",
     role: "Funcionário",
+    block: "Bloco C",
     active: false,
   },
 ];

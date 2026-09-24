@@ -19,7 +19,7 @@ type Props = {
   qrCode: string;
   setQrCode: React.Dispatch<React.SetStateAction<string>>;
   exportCsv: (rows: Request[]) => void;
-  updateStatus: (id: number, status: Request["status"]) => boolean;
+  updateStatus: (id: number, status: Request["status"]) => Promise<boolean>;
   setDetail: React.Dispatch<React.SetStateAction<Request | null>>;
   allowedStatuses: (item: Request) => Request["status"][];
   requestCard: (item: Request) => React.ReactNode;
@@ -287,8 +287,8 @@ export function RequestsScreen({
               <button
                 className="button primary"
                 disabled={!checked || !qrCode.trim()}
-                onClick={() => {
-                  if (updateStatus(selected.id, "Entregue")) {
+                onClick={async () => {
+                  if (await updateStatus(selected.id, "Entregue")) {
                     setSelectedId(null);
                     setChecked(false);
                   }

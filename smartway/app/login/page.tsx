@@ -4,6 +4,7 @@ import { BrandPanel } from "./components/brand-panel";
 import { DemoCredentials } from "./components/demo-credentials";
 import LoginForm from "./login-form";
 import styles from "./login.module.css";
+import { databaseEnabled } from "@/lib/db";
 
 export default async function LoginPage() {
   const user = await currentUser();
@@ -21,7 +22,7 @@ export default async function LoginPage() {
       <section className={styles.accessPanel} aria-labelledby="login-title">
         <header className={styles.accessHeader}>
           <span>Portal do colaborador</span>
-          <span className={styles.demoBadge}>Demonstração</span>
+          <span className={styles.demoBadge}>{databaseEnabled() ? "Acesso seguro" : "Demonstração"}</span>
         </header>
         <div className={styles.formContainer}>
           <div className={styles.heading}>
@@ -31,8 +32,8 @@ export default async function LoginPage() {
             </h1>
             <p>Acesse sua conta e continue de onde parou.</p>
           </div>
-          <LoginForm>
-            <DemoCredentials />
+          <LoginForm demoMode={!databaseEnabled()}>
+            {!databaseEnabled() && <DemoCredentials />}
           </LoginForm>
         </div>
         <footer className={styles.accessFooter}>

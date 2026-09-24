@@ -140,6 +140,7 @@ export type Movement = {
   warehouse: string;
   block?: string;
   requester?: string;
+  transferId?: number;
 };
 export const initialMovements: Movement[] = [
   {

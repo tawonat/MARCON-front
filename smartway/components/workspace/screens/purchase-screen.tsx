@@ -19,7 +19,8 @@ export function PurchaseScreen({
 }: {
   purchaseItems: PurchaseItem[];
 }) {
-  const { setStock } = useDemoStore();
+  const { setStock, persistent, runAction } = useDemoStore();
+  const [saveError, setSaveError] = useState("");
   const [draftCosts, setDraftCosts] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [warehouse, setWarehouse] = useState("Todos");
@@ -33,8 +34,17 @@ export function PurchaseScreen({
     return Number.isFinite(value) && value >= 0 ? value : item.estimatedCost;
   }
 
-  function saveCost(item: Part) {
+  async function saveCost(item: Part) {
     const value = costFor(item);
+    if (persistent) {
+      try {
+        await runAction({ type: "updatePrice", code: item.code, price: value });
+        setSaveError("");
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "Não foi possível salvar o preço.");
+      }
+      return;
+    }
     setStock((parts) =>
       parts.map((part) =>
         part.code === item.code ? { ...part, estimatedCost: value } : part,
@@ -122,11 +132,12 @@ export function PurchaseScreen({
         "Compra preditiva",
         "Projeção de reposição de peças baseada no consumo e no prazo de fornecimento.",
       )}
+      {saveError && <div className="info" role="alert">{saveError}</div>}
       <div className="info">
-        <strong>Simulação para avaliação</strong>
+        <strong>{persistent ? "Planejamento de compras" : "Simulação para avaliação"}</strong>
         <p>
-          Edite o valor unitário de referência para simular o investimento. Os
-          custos são demonstrativos e não representam cotações de mercado.
+          Edite o valor unitário de referência para simular o investimento. O
+          custo cadastrado é uma referência e não representa cotação de mercado.
         </p>
       </div>
       <section

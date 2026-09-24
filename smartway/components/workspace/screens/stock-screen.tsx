@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Boxes,
@@ -14,8 +14,9 @@ import { heading, badge } from "../ui";
 import { useDemoStore } from "../demo-store";
 import type { Part } from "@/lib/demo-data";
 import { boxLabel } from "@/lib/packaging";
+import { WAREHOUSES, balanceOf, type Warehouse } from "@/lib/inventory";
 
-const warehouses = ["Central", "Bloco A", "Bloco B", "Bloco C"];
+const warehouses = WAREHOUSES;
 const asNumber = (value: FormDataEntryValue | null) => Number(value ?? 0);
 
 export function StockScreen({
@@ -25,17 +26,24 @@ export function StockScreen({
   routePart?: string;
   setMessage: React.Dispatch<React.SetStateAction<string>>;
 }) {
-  const { stock, setStock, requests, setMovements } = useDemoStore();
+  const { stock, setStock, balances, setBalances, requests, setMovements, persistent, runAction } = useDemoStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [query, setQuery] = useState("");
-  const [warehouse, setWarehouse] = useState("Todos");
+  const [warehouse, setWarehouse] = useState<Warehouse>("Central");
   const [level, setLevel] = useState("Todos");
   const [sort, setSort] = useState("name");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const requested = new URLSearchParams(window.location.search).get("warehouse");
+      if (requested && WAREHOUSES.includes(requested as Warehouse)) setWarehouse(requested as Warehouse);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [routePart]);
 
   const visibleStock = useMemo(
     () =>
-      stock
+      stock.map((item) => ({ ...item, quantity: balanceOf(balances, item.code, warehouse), minimum: Math.max(2, Math.ceil(item.minimum / (warehouse === "Central" ? 4 : 8))), warehouse }))
         .filter((item) => {
           const routeMatch =
             !routePart ||
@@ -55,7 +63,6 @@ export function StockScreen({
           return (
             routeMatch &&
             textMatch &&
-            (warehouse === "Todos" || item.warehouse === warehouse) &&
             (level === "Todos" ||
               (level === "Crítico") === item.quantity < item.minimum)
           );
@@ -67,10 +74,10 @@ export function StockScreen({
               ? b.quantity - a.quantity
               : a.name.localeCompare(b.name, "pt-BR"),
         ),
-    [stock, routePart, query, warehouse, level, sort],
+    [stock, balances, routePart, query, warehouse, level, sort],
   );
 
-  function savePart(event: React.FormEvent<HTMLFormElement>) {
+  async function savePart(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
@@ -109,16 +116,18 @@ export function StockScreen({
       );
       return;
     }
-    const image = photo?.size ? URL.createObjectURL(photo) : editing?.image;
+    const image = photo?.size && !persistent ? URL.createObjectURL(photo) : editing?.image;
+    const oldBalance = editing ? balanceOf(balances, editing.code, warehouse) : 0;
+    const change = quantity - oldBalance;
     const part: Part = {
       id: editing?.id ?? Math.max(0, ...stock.map((item) => item.id)) + 1,
       name,
       code,
       qrCode,
-      quantity,
+      quantity: (stock.find((item) => item.id === editing?.id)?.quantity ?? 0) + change,
       packSize,
       minimum,
-      warehouse: String(data.get("warehouse") ?? "Central"),
+      warehouse,
       location: String(data.get("location") ?? "").trim(),
       leadDays: asNumber(data.get("leadDays")),
       estimatedCost: asNumber(data.get("cost")),
@@ -126,12 +135,33 @@ export function StockScreen({
       previous30: editing?.previous30 ?? 0,
       image,
     };
+    if (persistent) {
+      try {
+        if (photo?.size && photo.size > 1_000_000) throw new Error("A foto deve ter até 1 MB.");
+        const imageData = photo?.size ? await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Não foi possível ler a foto."));
+          reader.readAsDataURL(photo);
+        }) : editing?.image;
+        await runAction({ type: "savePart", part: { ...part, id: editing?.id ?? null, image: imageData }, warehouse, localQuantity: quantity });
+        setEditing(null); setFormOpen(false);
+        setMessage(editing ? "Peça atualizada." : "Peça cadastrada.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível salvar a peça.");
+      }
+      return;
+    }
     setStock((items) =>
       editing
         ? items.map((item) => (item.id === editing.id ? part : item))
         : [...items, part],
     );
-    const change = quantity - (editing?.quantity ?? 0);
+    setBalances((items) => {
+      const rest = items.filter((item) => !(item.partCode === editing?.code && item.warehouse === warehouse));
+      const renamed = editing && editing.code !== code ? rest.map((item) => item.partCode === editing.code ? { ...item, partCode: code } : item) : rest;
+      return [...renamed, { partCode: code, warehouse, quantity }];
+    });
     if (change !== 0)
       setMovements((items) => [
         {
@@ -153,7 +183,7 @@ export function StockScreen({
     );
   }
 
-  function remove(part: Part) {
+  async function remove(part: Part) {
     const linked = requests.some(
       (request) => request.code === part.code || request.material === part.name,
     );
@@ -163,9 +193,19 @@ export function StockScreen({
       );
       return;
     }
-    if (!window.confirm("Excluir " + part.name + " do estoque desta sessão?"))
+    if (!window.confirm((persistent ? "Desativar " : "Excluir ") + part.name + (persistent ? " do catálogo?" : " do estoque desta sessão?")))
       return;
+    if (persistent) {
+      try {
+        await runAction({ type: "deletePart", id: part.id });
+        setMessage("Peça desativada.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "Não foi possível desativar a peça.");
+      }
+      return;
+    }
     setStock((items) => items.filter((item) => item.id !== part.id));
+    setBalances((items) => items.filter((item) => item.partCode !== part.code));
     setMessage("Peça excluída desta sessão.");
   }
 
@@ -187,6 +227,15 @@ export function StockScreen({
           <Plus size={17} aria-hidden="true" /> Nova peça
         </button>
       </div>
+      <div className="warehouse-tabs" role="tablist" aria-label="Estoque por almoxarifado">
+        {WAREHOUSES.map((item) => (
+          <button key={item} type="button" role="tab" aria-selected={warehouse === item}
+            className={warehouse === item ? "warehouse-tab active" : "warehouse-tab"}
+            onClick={() => { setWarehouse(item); setEditing(null); setFormOpen(false); }}>
+            {item}<strong>{stock.reduce((sum, part) => sum + balanceOf(balances, part.code, item), 0)} un.</strong>
+          </button>
+        ))}
+      </div>
       <div className="stats stock-summary">
         <div className="stat">
           <span className="stat-icon blue">
@@ -195,7 +244,7 @@ export function StockScreen({
           <span>Peças cadastradas</span>
           <strong>{stock.length}</strong>
           <small>
-            {new Set(stock.map((item) => item.warehouse)).size} almoxarifados
+            {WAREHOUSES.length} almoxarifados
           </small>
         </div>
         <div className="stat">
@@ -203,8 +252,8 @@ export function StockScreen({
             <Package size={20} aria-hidden="true" />
           </span>
           <span>Unidades disponíveis</span>
-          <strong>{stock.reduce((sum, item) => sum + item.quantity, 0)}</strong>
-          <small>Saldo combinado</small>
+          <strong>{stock.reduce((sum, item) => sum + balanceOf(balances, item.code, warehouse), 0)}</strong>
+          <small>Saldo do {warehouse}</small>
         </div>
         <div className="stat">
           <span className="stat-icon coral">
@@ -212,7 +261,7 @@ export function StockScreen({
           </span>
           <span>Abaixo do mínimo</span>
           <strong>
-            {stock.filter((item) => item.quantity < item.minimum).length}
+            {stock.filter((item) => balanceOf(balances, item.code, warehouse) < Math.max(2, Math.ceil(item.minimum / (warehouse === "Central" ? 4 : 8)))).length}
           </strong>
           <small>Necessitam reposição</small>
         </div>
@@ -282,7 +331,8 @@ export function StockScreen({
               Almoxarifado
               <select
                 name="warehouse"
-                defaultValue={editing?.warehouse ?? "Central"}
+                value={warehouse}
+                disabled
               >
                 {warehouses.map((item) => (
                   <option key={item}>{item}</option>
@@ -305,7 +355,7 @@ export function StockScreen({
                 type="number"
                 min="0"
                 required
-                defaultValue={editing?.quantity ?? 0}
+                defaultValue={editing ? balanceOf(balances, editing.code, warehouse) : 0}
                 inputMode="numeric"
               />
             </label>
@@ -385,9 +435,8 @@ export function StockScreen({
             Almoxarifado
             <select
               value={warehouse}
-              onChange={(event) => setWarehouse(event.target.value)}
+              onChange={(event) => setWarehouse(event.target.value as Warehouse)}
             >
-              <option>Todos</option>
               {warehouses.map((item) => (
                 <option key={item}>{item}</option>
               ))}
@@ -476,14 +525,14 @@ export function StockScreen({
                   <div className="stock-result-actions">
                     <Link
                       className="link-button"
-                      href={"/warehouse/stock/peca/" + item.id}
+                      href={"/warehouse/stock/peca/" + item.id + "?warehouse=" + encodeURIComponent(warehouse)}
                     >
                       Detalhes
                     </Link>
                     <button
                       className="link-button"
                       onClick={() => {
-                        setEditing(item);
+                        setEditing(stock.find((part) => part.id === item.id) ?? item);
                         setFormOpen(true);
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
@@ -496,7 +545,7 @@ export function StockScreen({
                       onClick={() => remove(item)}
                       aria-label={"Excluir " + item.name}
                     >
-                      <Trash2 size={16} /> Excluir
+                      <Trash2 size={16} /> {persistent ? "Desativar" : "Excluir"}
                     </button>
                   </div>
                 </div>
@@ -511,7 +560,7 @@ export function StockScreen({
               className="button secondary"
               onClick={() => {
                 setQuery("");
-                setWarehouse("Todos");
+                setWarehouse("Central");
                 setLevel("Todos");
               }}
             >
