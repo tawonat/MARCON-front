@@ -8,6 +8,7 @@ import {
   type Request,
   type Part,
 } from "@/lib/demo-data";
+import { initialStaff, type StaffUser } from "@/lib/staff-data";
 type CartItem = {
   code: string;
   quantity: number;
@@ -21,8 +22,8 @@ type Store = {
   movements: Movement[];
   setMovements: React.Dispatch<React.SetStateAction<Movement[]>>;
   setStock: React.Dispatch<React.SetStateAction<Part[]>>;
-  staff: string[];
-  setStaff: React.Dispatch<React.SetStateAction<string[]>>;
+  staff: StaffUser[];
+  setStaff: React.Dispatch<React.SetStateAction<StaffUser[]>>;
   cart: CartItem[];
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
 };
@@ -31,12 +32,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [requests, setRequests] = useState(initialRequests);
   const [stock, setStock] = useState(initialStock);
   const [movements, setMovements] = useState(initialMovements);
-  const [staff, setStaff] = useState([
-    "Ana Souza",
-    "Carlos Lima",
-    "Marina Costa",
-    "João Pereira",
-  ]);
+  const [staff, setStaff] = useState(initialStaff);
   const [cart, setCart] = useState<CartItem[]>([]);
   return (
     <Context.Provider
