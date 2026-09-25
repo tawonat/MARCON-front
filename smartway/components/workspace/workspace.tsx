@@ -27,6 +27,7 @@ import {
   Inbox,
   LayoutDashboard,
   Lightbulb,
+  LogOut,
   Menu,
   Plus,
   UsersRound,
@@ -429,7 +430,17 @@ export default function Workspace({
               Área de trabalho <b>/</b> <strong>{active.label}</strong>
             </span>
           </div>
-          <span className="role-control"><strong>{current.name}</strong></span>
+          <div className="role-control">
+            <strong>{current.name}</strong>
+            {role === "funcionario" && (
+              <form action="/api/logout" method="post">
+                <button type="submit" className="workspace-logout" aria-label="Sair da conta" title="Sair da conta">
+                  <LogOut size={18} aria-hidden="true" />
+                  <span>Sair da conta</span>
+                </button>
+              </form>
+            )}
+          </div>
         </header>
         <main className="content">
           {message && (

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+﻿import { expect, test, type Page } from "@playwright/test";
 
 async function signInEmployee(page: Page) {
   await page.goto("/login");
@@ -54,7 +54,9 @@ test("employee adds a part to cart and confirms the request", async ({
   await expect(
     page.getByRole("heading", { name: /Carrinho · 1 item/ }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Confirmar carrinho" }).click();
+  await page.reload();
+  await expect(page.getByRole("heading", { name: /Carrinho · 1 item/ })).toBeVisible();
+  await page.getByRole("button", { name: "Finalizar requisição" }).click();
   await expect(page).toHaveURL("/employee/history");
   await expect(page.getByText("Rolamento 6205 ZZ").first()).toBeVisible();
 });
@@ -94,3 +96,4 @@ test("employee area requires an employee session", async ({ page }) => {
   await page.goto("/employee/request");
   await expect(page).toHaveURL("/inicio/admin");
 });
+

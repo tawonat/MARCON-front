@@ -53,6 +53,29 @@ export function DemoProvider({ children, persistent = false }: { children: React
   const [staff, setStaff] = useState(initialStaff);
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartLoaded, setCartLoaded] = useState(false);
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
+      try {
+        const saved = window.sessionStorage.getItem("marcon-employee-cart");
+        if (saved) {
+          const parsed: unknown = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.every((item) =>
+            item && typeof item.code === "string" && Number.isSafeInteger(item.quantity) &&
+            item.quantity > 0 && ["Leve", "Moderado", "Urgente"].includes(item.priority) &&
+            typeof item.justification === "string"
+          )) setCart(parsed as CartItem[]);
+        }
+      } catch { /* Discard an invalid saved cart. */ }
+      setCartLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (cartLoaded) window.sessionStorage.setItem("marcon-employee-cart", JSON.stringify(cart));
+  }, [cart, cartLoaded]);
   const refresh = useCallback(async () => {
     const response = await fetch("/api/workspace", { cache: "no-store" });
     if (response.status === 401) { setReady(true); setLoadedFor(pathname); return; }

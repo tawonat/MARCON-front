@@ -223,7 +223,7 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
     router.push("/employee/history");
   }
 
-  const cartPanel = cart.length > 0 && (
+  const cartPanel = (
     <section
       id="carrinho"
       className={styles.employeeCart}
@@ -237,14 +237,13 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
           </h2>
           <p>{cartUnits} unidades aguardando confirmação.</p>
         </div>
-        <button
-          type="button"
-          className={styles.primaryAction}
-          onClick={checkoutCart}
-        >
-          Confirmar carrinho <ArrowRight size={17} />
-        </button>
+        {cart.length > 0 && (
+          <button type="button" className={styles.primaryAction} onClick={checkoutCart}>
+            Finalizar requisição <ArrowRight size={17} />
+          </button>
+        )}
       </div>
+      {cart.length === 0 && <p>Seu carrinho está vazio. Escolha uma peça no catálogo para começar.</p>}
       {cart.map((entry, index) => {
         const part = stock.find((piece) => piece.code === entry.code);
         return (
@@ -297,6 +296,9 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
   if (isDetail && selectedPart) {
     return (
       <main className={styles.content}>
+        <Link href="/employee/request#carrinho" className={styles.cartShortcut}>
+          <ShoppingCart size={17} /> Acessar carrinho ({cart.length})
+        </Link>
         <Link href="/employee/request" className={styles.backLink}>
           <ArrowLeft size={18} /> Voltar ao catálogo
         </Link>
@@ -535,11 +537,9 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
             <span className={styles.count}>
               {filtered.length} {filtered.length === 1 ? "peça" : "peças"}
             </span>
-            {cart.length > 0 && (
-              <a href="#carrinho" className={styles.cartShortcut}>
-                <ShoppingCart size={17} /> Carrinho ({cart.length})
-              </a>
-            )}
+            <a href="#carrinho" className={styles.cartShortcut}>
+              <ShoppingCart size={17} /> Acessar carrinho ({cart.length})
+            </a>
           </div>
         </div>
         <div className={styles.toolbar}>

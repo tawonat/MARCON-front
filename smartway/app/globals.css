@@ -229,6 +229,23 @@ select:focus-visible {
   color: var(--subtle);
   white-space: nowrap;
 }
+.workspace-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.workspace-logout:hover,
+.workspace-logout:focus-visible {
+  background: #eef3fa;
+}
 .role-control select {
   padding: 9px 12px;
   border: 1px solid var(--line);
@@ -780,6 +797,10 @@ td select {
   }
 }
 @media (max-width: 640px) {
+  .workspace-logout span,
+  .role-control > strong {
+    display: none;
+  }
   .topbar {
     padding: 0 14px;
   }
