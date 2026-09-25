@@ -42,8 +42,8 @@ type Store = {
 const Context = createContext<Store | null>(null);
 export function DemoProvider({ children, persistent = false }: { children: React.ReactNode; persistent?: boolean }) {
   const pathname = usePathname();
+  const publicPage = pathname === "/login" || pathname.startsWith("/inicio/");
   const [ready, setReady] = useState(!persistent);
-  const [loadedFor, setLoadedFor] = useState(persistent ? "" : pathname);
   const [loadError, setLoadError] = useState("");
   const [requests, setRequests] = useState(initialRequests);
   const [stock, setStock] = useState(initialStock);
@@ -55,27 +55,27 @@ export function DemoProvider({ children, persistent = false }: { children: React
   const [cart, setCart] = useState<CartItem[]>([]);
   const refresh = useCallback(async () => {
     const response = await fetch("/api/workspace", { cache: "no-store" });
-    if (response.status === 401) { setReady(true); setLoadedFor(pathname); return; }
+    if (response.status === 401) { window.location.replace("/login"); return; }
     if (!response.ok) throw new Error("Não foi possível carregar os dados do MySQL.");
     const data: WorkspaceSnapshot = await response.json();
     setRequests(data.requests); setStock(data.stock); setBalances(data.balances);
     setMovements(data.movements); setTransfers(data.transfers); setReturns(data.returns); setStaff(data.staff);
-    setReady(true); setLoadedFor(pathname); setLoadError("");
-  }, [pathname]);
+    setReady(true); setLoadError("");
+  }, []);
   useEffect(() => {
-    if (!persistent) return;
+    if (!persistent || publicPage) return;
     const timer = window.setTimeout(() => {
       refresh().catch((error) => { setReady(true); setLoadError(error.message); });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [persistent, refresh, pathname]);
+  }, [persistent, refresh, publicPage]);
   useEffect(() => {
-    if (!persistent) return;
+    if (!persistent || publicPage) return;
     const update = () => { if (document.visibilityState === "visible") refresh().catch(() => undefined); };
     window.addEventListener("focus", update);
     const interval = window.setInterval(update, 30_000);
     return () => { window.removeEventListener("focus", update); window.clearInterval(interval); };
-  }, [persistent, refresh]);
+  }, [persistent, refresh, publicPage]);
   const runAction = useCallback(async (action: Record<string, unknown>) => {
     if (!persistent) throw new Error("Ação persistente indisponível no modo de demonstração.");
     const response = await fetch("/api/workspace", {
@@ -86,8 +86,8 @@ export function DemoProvider({ children, persistent = false }: { children: React
     await refresh();
     return result as Record<string, unknown>;
   }, [persistent, refresh]);
-  if (!ready || (persistent && loadedFor !== pathname)) return <div className="app-loading" role="status">Carregando dados do sistema…</div>;
-  if (loadError) return <div className="app-loading" role="alert">{loadError} <button onClick={() => refresh().catch((error) => setLoadError(error.message))}>Tentar novamente</button></div>;
+  if (!publicPage && loadError) return <div className="app-loading" role="alert">{loadError} <button onClick={() => refresh().catch((error) => setLoadError(error.message))}>Tentar novamente</button></div>;
+  if (!publicPage && !ready) return <div className="app-loading" role="status">Carregando dados do sistema…</div>;
   return (
     <Context.Provider
       value={{

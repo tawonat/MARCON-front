@@ -125,6 +125,7 @@ test("catalog and detail show errors with a working retry", async ({
 test("request validates stock and restricts creation to employees", async ({
   page,
   request,
+  baseURL,
 }) => {
   await signIn(page);
   const cookies = await page.context().cookies();
@@ -133,7 +134,7 @@ test("request validates stock and restricts creation to employees", async ({
   );
   expect(sessionCookie).toBeDefined();
   const headers = {
-    Origin: "http://localhost:3000",
+    Origin: baseURL!,
     Cookie: `marcon_session=${sessionCookie!.value}`,
   };
   const excess = await request.post("/api/requisicoes", {

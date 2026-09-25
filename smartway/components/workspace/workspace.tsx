@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useDemoStore } from "./demo-store";
 import { useEmployeeName, useEmployeeBlock } from "./employee-identity";
 import { badge } from "./ui";
@@ -17,9 +18,10 @@ import { DashboardScreen } from "./screens/dashboard-screen";
 import { WarehouseDashboard } from "./screens/warehouse-dashboard";
 import { RequestsScreen } from "./screens/requests-screen";
 import { type Request, type Part } from "@/lib/demo-data";
-import { pathFor, type Role, type Page } from "@/lib/workspace-routes";
+import { pathFor, roleLanding, type Role, type Page } from "@/lib/workspace-routes";
 import {
   Boxes,
+  ArrowLeft,
   RotateCcw,
   ChartNoAxesCombined,
   ClipboardList,
@@ -129,6 +131,13 @@ export default function Workspace({
   const menuButton = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
   const current = roles[role];
+  const backHref = routePart && routePart !== "all"
+    ? pathFor(role, page)
+    : dashboardView
+      ? roleLanding[role]
+      : page === "dashboard" || (role === "funcionario" && page === "nova")
+        ? `/inicio/${role}`
+        : roleLanding[role];
   const active =
     current.pages.find((item) => item.id === page) ?? current.pages[0];
   const roleRequests = requests.filter((item) =>
@@ -416,6 +425,9 @@ export default function Workspace({
       <div className="main">
         <header className="topbar">
           <div className="top-left">
+            <Link className="icon-button" aria-label="Voltar" title="Voltar" href={backHref}>
+              <ArrowLeft size={20} aria-hidden="true" />
+            </Link>
             <button
               ref={menuButton}
               className="icon-button menu"
@@ -429,7 +441,9 @@ export default function Workspace({
               Área de trabalho <b>/</b> <strong>{active.label}</strong>
             </span>
           </div>
-          <span className="role-control"><strong>{current.name}</strong></span>
+          <form action="/api/logout" method="post">
+            <button className="secondary-button" type="submit">Sair da conta</button>
+          </form>
         </header>
         <main className="content">
           {message && (

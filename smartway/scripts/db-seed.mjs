@@ -1,21 +1,22 @@
 import { randomBytes, scryptSync } from "node:crypto";
 import mysql from "mysql2/promise";
 import nextEnv from "@next/env";
+import { databaseConfig } from "../lib/db-config.mjs";
 
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd());
 
-if (!process.env.DATABASE_URL || !process.env.SEED_PASSWORD) {
-  throw new Error("Defina DATABASE_URL e SEED_PASSWORD antes de executar o seed.");
+if (!process.env.SEED_PASSWORD) {
+  throw new Error("Defina SEED_PASSWORD antes de executar o seed.");
 }
 const password = process.env.SEED_PASSWORD;
 if (password.length < 12) throw new Error("SEED_PASSWORD deve ter pelo menos 12 caracteres.");
-const connection = await mysql.createConnection(process.env.DATABASE_URL);
+const connection = await mysql.createConnection(databaseConfig());
 const blocks = ["Bloco A", "Bloco B", "Bloco C", "Bloco D"];
 const warehouses = ["Central", "Almoxarifado 1", "Almoxarifado 2", "Almoxarifado 3", "Almoxarifado 4"];
 const accounts = [
   ["1001", "Ana Souza", "ana@marcon.demo", "funcionario", "Usinagem", "Bloco A"],
-  ["1002", "Carlos Oliveira", "carlos@marcon.demo", "lider", "Montagem", "Bloco B"],
+  ["1002", "Carlos Oliveira", "carlos@marcon.demo", "lider", "Montagem", "Bloco A"],
   ["1003", "Mariana Lima", "mariana@marcon.demo", "almoxarifado", "Almoxarifado", null],
   ["1004", "Rafael Santos", "rafael@marcon.demo", "admin", "Administração", null],
 ];
