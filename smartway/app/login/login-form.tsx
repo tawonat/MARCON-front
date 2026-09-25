@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useLogin } from "./use-login";
 import { RfidAccess } from "./components/rfid-access";
-import { FaceCameraTest } from "./components/face-camera-test";
+import { PasskeyLogin } from "./components/passkey-login";
 import styles from "./login.module.css";
 
 export default function LoginForm({ children, demoMode = true }: { children: ReactNode; demoMode?: boolean }) {
@@ -59,7 +59,7 @@ export default function LoginForm({ children, demoMode = true }: { children: Rea
       {rfidActive ? (
         <RfidAccess onCancel={cancelRfid} />
       ) : faceActive ? (
-        <FaceCameraTest onCancel={() => setFaceActive(false)} />
+        <PasskeyLogin identity={identity} onCancel={() => setFaceActive(false)} />
       ) : (
         <>
           <form className={styles.form} onSubmit={submit} aria-busy={isBusy}>
@@ -154,14 +154,13 @@ export default function LoginForm({ children, demoMode = true }: { children: Rea
               outras formas de acesso
               <span />
             </div>
-            <button className={styles.rfidButton} type="button" disabled={!demoMode || isBusy}
+            <button className={styles.rfidButton} type="button" disabled={demoMode || isBusy || !identity.trim()}
               onClick={() => setFaceActive(true)} aria-describedby="face-access-note">
               <ScanFace size={20} aria-hidden="true" />
-              <span>{demoMode ? "Testar identificação facial" : "Entrar com identificação facial"}</span>
-              <span className={styles.simulationTag}>{demoMode ? "Teste de câmera" : "Em configuração"}</span>
+              <span>Entrar com passkey</span>
             </button>
             <p id="face-access-note" className={styles.rfidNote}>
-              {demoMode ? "Prévia local da câmera, sem login e sem salvar imagens." : "Disponível após configurar a verificação facial segura no servidor."}
+              {demoMode ? "Disponível com MySQL configurado." : "Informe seu e-mail ou matrícula. Cadastre sua passkey no perfil após entrar com senha."}
             </p>
             {demoMode && <>
               <button

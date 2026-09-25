@@ -183,3 +183,23 @@ CREATE TABLE IF NOT EXISTS auth_attempts (
   first_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   blocked_until DATETIME(3) NULL
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+  credential_id VARCHAR(512) PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  public_key BLOB NOT NULL,
+  counter BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  transports JSON NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_passkey_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_passkey_user (user_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS passkey_challenges (
+  token_hash BINARY(32) PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  challenge VARCHAR(128) NOT NULL,
+  purpose ENUM('register','login') NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  CONSTRAINT fk_passkey_challenge_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;

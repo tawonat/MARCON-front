@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { AccountRole } from "@/lib/accounts";
 import styles from "./profile.module.css";
+import { PasskeyRegister } from "./passkey-register";
 
 export default function ProfileForm({ name: initialName, email: initialEmail, role, persistent }: {
   name: string; email: string; role: AccountRole; persistent: boolean;
@@ -53,17 +54,26 @@ export default function ProfileForm({ name: initialName, email: initialEmail, ro
       </div>
       {!persistent && <p role="note" className={styles.notice}>Configure o MySQL para salvar alterações no perfil.</p>}
       <form className={styles.card} onSubmit={save}>
-        <div className={styles.grid}>
-          <label>Nome completo<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></label>
-          <label>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={190} /></label>
-          <label>Senha atual<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
-          <label>Nova senha (opcional)<input type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Mínimo de 12 caracteres" /></label>
-          <label>Confirme a nova senha<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+        <div className={styles.cardSection}>
+          <div className={styles.sectionHeading}><h2>Dados pessoais</h2><p>Mantenha suas informações de contato atualizadas.</p></div>
+          <div className={styles.grid}>
+            <label className={styles.field}>Nome completo<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} autoComplete="name" /></label>
+            <label className={styles.field}>E-mail<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required maxLength={190} autoComplete="email" /></label>
+          </div>
         </div>
-        {error && <p role="alert" className={styles.error}>{error}</p>}
-        {message && <p role="status" className={styles.success}>{message}</p>}
-        <button type="submit" disabled={!persistent || busy}>{busy ? "Salvando…" : "Salvar perfil"}</button>
+        <div className={styles.cardSection}>
+          <div className={styles.sectionHeading}><h2>Senha da conta</h2><p>Informe a senha atual para salvar. Preencha os demais campos somente se quiser trocá-la.</p></div>
+          <div className={styles.passwordGrid}>
+            <label className={styles.field}>Senha atual<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label>
+            <label className={styles.field}>Nova senha (opcional)<input type="password" autoComplete="new-password" minLength={12} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Mínimo de 12 caracteres" /></label>
+            <label className={styles.field}>Confirme a nova senha<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+          </div>
+        </div>
+        {error && <p role="alert" className={`${styles.feedback} ${styles.error}`}>{error}</p>}
+        {message && <p role="status" className={`${styles.feedback} ${styles.success}`}>{message}</p>}
+        <div className={styles.actions}><button className={styles.button} type="submit" disabled={!persistent || busy}>{busy ? "Salvando…" : "Salvar perfil"}</button></div>
       </form>
+      {persistent && <PasskeyRegister />}
     </div>
   </main>;
 }

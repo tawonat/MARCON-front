@@ -68,10 +68,12 @@ a senha atual; cinco tentativas incorretas bloqueiam novas tentativas por 15
 minutos. A troca de senha invalida as sessões anteriores. O administrador define
 e confirma a senha inicial no cadastro de usuários.
 
-O login facial exclusivo permanece desativado. Para habilitá-lo com segurança,
-é necessário verificar reconhecimento **e prova de vida no servidor**, com uma
-sessão de desafio vinculada ao usuário e a uma credencial biométrica persistida.
-Resultado calculado apenas no navegador não pode autorizar login, pois o cliente
-pode enviar uma resposta falsificada. Os projetos gratuitos avaliados fornecem
-peças desse fluxo, mas não uma integração empresarial pronta e testada neste
-ambiente. Não cadastre fotos como substituto de credencial facial.
+O teste de câmera foi substituído por passkeys WebAuthn. Com MySQL configurado,
+o usuário entra com senha, abre `/profile` e cadastra uma passkey integrada ao dispositivo.
+Depois, pode informar e-mail ou matrícula e entrar com a passkey. O aparelho
+pode solicitar rosto, digital ou PIN conforme o sistema, sem chave USB. A aplicação não recebe
+nem armazena imagens ou dados biométricos. O servidor verifica o desafio, a
+assinatura e a credencial cadastrada antes de criar a sessão. Execute
+`npm run db:migrate` para criar as tabelas de passkeys no banco existente.
+WebAuthn requer HTTPS em produção (localhost funciona para desenvolvimento)
+e um domínio estável: passkeys cadastradas em outro domínio não funcionam.
