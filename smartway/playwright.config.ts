@@ -1,20 +1,25 @@
 import { defineConfig } from "@playwright/test";
 
+const port = process.env.PLAYWRIGHT_PORT || "3000";
+const baseURL = `http://localhost:${port}`;
+
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: "**/mysql/**",
   fullyParallel: false,
   workers: 1,
   reporter: "list",
   use: {
-    baseURL: "http://localhost:3000",
+    baseURL,
     channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
     headless: true,
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000/login",
-    reuseExistingServer: !process.env.CI,
+    command: `npm run ${process.env.PLAYWRIGHT_PRODUCTION ? "start" : "dev"} -- --port ${port}`,
+    url: `${baseURL}/login`,
+    env: { DATABASE_URL: "", DB_NAME: "", DB_USER: "" },
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

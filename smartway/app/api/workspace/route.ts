@@ -5,7 +5,7 @@ import { workspaceSnapshot } from "@/lib/workspace-db";
 import { ActionError, executeWorkspaceAction } from "@/lib/workspace-actions";
 
 export const runtime = "nodejs";
-const unavailable = () => NextResponse.json({ error: "Configure DATABASE_URL para usar o modo persistente." }, { status: 503 });
+const unavailable = () => NextResponse.json({ error: "Configure DB_NAME e DB_USER (ou DATABASE_URL) para usar o modo persistente." }, { status: 503 });
 
 export async function GET() {
   if (!databaseEnabled()) return unavailable();

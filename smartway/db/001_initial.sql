@@ -1,3 +1,10 @@
+-- MySQL 8: execute o arquivo inteiro no Workbench.
+-- Este bloco cria e seleciona o banco local sem apagar dados existentes.
+CREATE DATABASE IF NOT EXISTS `marcon`
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE `marcon`;
+
+-- BEGIN TABLES
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version VARCHAR(80) PRIMARY KEY,
   applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)

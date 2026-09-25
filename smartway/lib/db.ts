@@ -1,15 +1,15 @@
 import mysql, { type Pool, type PoolConnection } from "mysql2/promise";
+import { databaseConfig, databaseConfigured } from "./db-config.mjs";
 
 const state = globalThis as typeof globalThis & { marconPool?: Pool };
 
 export function databaseEnabled() {
-  return Boolean(process.env.DATABASE_URL);
+  return databaseConfigured();
 }
 
 export function getPool(): Pool {
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL não configurada");
   return state.marconPool ??= mysql.createPool({
-    uri: process.env.DATABASE_URL,
+    ...databaseConfig(),
     connectionLimit: 10,
     decimalNumbers: true,
     dateStrings: true,

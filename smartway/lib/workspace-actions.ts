@@ -66,6 +66,7 @@ export async function executeWorkspaceAction(user: Account, input: unknown) {
         if (!block?.block_id) throw new ActionError("Usuário sem bloco definido.");
         const ids: number[] = [];
         for (const entry of action.entries) {
+          if (!entry || typeof entry !== "object") throw new ActionError("Item do carrinho inválido.");
           const code = text(entry.code, 64);
           const quantity = positiveInteger(entry.quantity);
           const priority = entry.priority;
@@ -256,7 +257,7 @@ export async function executeWorkspaceAction(user: Account, input: unknown) {
       const name = text(data.name, 120);
       const email = text(data.email, 190).toLowerCase();
       const sector = text(data.sector, 80);
-      const role = roleCodes[String(data.role)];
+      const role = Object.hasOwn(roleCodes, String(data.role)) ? roleCodes[String(data.role)] : undefined;
       const blockName = text(data.block, 80);
       const active = data.active === false ? 0 : 1;
       if (!/^[A-Za-z0-9_-]{1,30}$/.test(employeeNo) || !name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !sector || !role)
@@ -295,6 +296,7 @@ export async function executeWorkspaceAction(user: Account, input: unknown) {
     }
     case "toggleUser": {
       requireRole(user, ["admin"]);
+      if (typeof action.active !== "boolean") throw new ActionError("Status do usuário inválido.");
       const employeeNo = text(action.id, 30);
       if (employeeNo === user.id && !action.active) throw new ActionError("Não é possível desativar a própria conta.");
       return transaction(async (connection) => {
