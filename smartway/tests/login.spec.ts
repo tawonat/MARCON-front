@@ -10,6 +10,7 @@ test("layout remains usable from 320px to 1920px", async ({ page }) => {
     await expect(
       page.getByRole("button", { name: "Entrar", exact: true }),
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Testar identificação facial/ })).toBeEnabled();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -35,6 +36,16 @@ test("layout remains usable from 320px to 1920px", async ({ page }) => {
     fullPage: true,
     animations: "disabled",
   });
+});
+
+test("camera facial de demonstração abre e retorna ao login sem autenticar", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: /Testar identificação facial/ }).click();
+  await expect(page.getByRole("heading", { name: "Teste da câmera facial" })).toBeVisible();
+  await expect(page.getByText("Este teste não entra na conta.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Voltar ao login" }).click();
+  await expect(page.getByRole("button", { name: "Entrar", exact: true })).toBeVisible();
+  await expect(page).toHaveURL("/login");
 });
 
 test("credentials, errors, password visibility and logout", async ({

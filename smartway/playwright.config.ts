@@ -16,7 +16,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `npm run ${process.env.PLAYWRIGHT_PRODUCTION ? "start" : "dev"} -- --port ${port}`,
+    command: `npx next ${process.env.PLAYWRIGHT_PRODUCTION ? "start" : "dev"} -p ${port}`,
     url: `${baseURL}/login`,
     env: { DATABASE_URL: "", DB_NAME: "", DB_USER: "" },
     reuseExistingServer: false,

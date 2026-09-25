@@ -229,6 +229,13 @@ select:focus-visible {
   color: var(--subtle);
   white-space: nowrap;
 }
+.workspace-profile {
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.workspace-profile:hover { text-decoration: underline; }
 .workspace-logout {
   display: inline-flex;
   align-items: center;
@@ -549,6 +556,7 @@ select:focus-visible {
   min-width: 140px;
 }
 .table-wrap {
+  position: relative;
   overflow-x: auto;
 }
 table {
@@ -797,6 +805,7 @@ td select {
   }
 }
 @media (max-width: 640px) {
+  .workspace-profile { font-size: 12px; }
   .workspace-logout span,
   .role-control > strong {
     display: none;
@@ -2023,6 +2032,8 @@ td select {
   background: var(--color-marcon-navy);
   color: white;
 }
+.home-account-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.home-account-actions a { text-decoration: none; }
 
 .brand-label {
   display: inline-flex;

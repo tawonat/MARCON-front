@@ -444,6 +444,7 @@ export default function Workspace({
           </div>
           <div className="role-control">
             <strong>{current.name}</strong>
+            <Link href="/profile" className="workspace-profile">Editar perfil</Link>
             <form action="/api/logout" method="post">
               <button type="submit" className="workspace-logout" aria-label="Sair da conta" title="Sair da conta">
                 <LogOut size={18} aria-hidden="true" />

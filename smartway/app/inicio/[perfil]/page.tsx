@@ -33,9 +33,12 @@ export default async function ProfileHome({
         <span className="brand-label">
           <BrandLogo /> SMARTWAY
         </span>
-        <form action="/api/logout" method="post">
-          <button className="secondary-button">Sair da conta</button>
-        </form>
+        <div className="home-account-actions">
+          <Link href="/profile" className="secondary-button">Editar perfil</Link>
+          <form action="/api/logout" method="post">
+            <button className="secondary-button">Sair da conta</button>
+          </form>
+        </div>
       </header>
       <section className="home-content">
         <span className="section-number">PORTAL DO COLABORADOR</span>

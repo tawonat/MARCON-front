@@ -16,6 +16,9 @@ acesso a ele. Copie `.env.example` para `.env.local` e configure `DB_HOST`, `DB_
 `SESSION_SECRET` e `SEED_PASSWORD`. Nos campos separados a senha não precisa de
 codificação de URL. Use aspas se houver `#` e escape `$` como `\$` no arquivo env.
 `DATABASE_URL` continua disponível como alternativa; `DB_NAME` e `DB_USER` têm prioridade.
+Nesta máquina, o serviço MySQL80 usa a porta `3307` no `my.ini`; defina
+`DB_PORT=3307` no `.env.local`. O Workbench é apenas o cliente: a aplicação
+se conecta ao MySQL Server com usuário e senha próprios.
 Gere um segredo privado com `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`.
 A senha do seed deve ter pelo menos 12 caracteres.
 
@@ -57,3 +60,18 @@ A configuração demo desativa `DB_NAME`, `DB_USER` e `DATABASE_URL` somente no 
 O MySQL local ainda retorna `ER_ACCESS_DENIED_ERROR` com as credenciais de exemplo.
 Migração, seed e testes reais permanecem pendentes até configurar o acesso real.
 **MySQL não validado para produção.**
+
+## Perfil e autenticação facial
+
+`/profile` permite atualizar nome, e-mail e senha no MySQL. Toda alteração exige
+a senha atual; cinco tentativas incorretas bloqueiam novas tentativas por 15
+minutos. A troca de senha invalida as sessões anteriores. O administrador define
+e confirma a senha inicial no cadastro de usuários.
+
+O login facial exclusivo permanece desativado. Para habilitá-lo com segurança,
+é necessário verificar reconhecimento **e prova de vida no servidor**, com uma
+sessão de desafio vinculada ao usuário e a uma credencial biométrica persistida.
+Resultado calculado apenas no navegador não pode autorizar login, pois o cliente
+pode enviar uma resposta falsificada. Os projetos gratuitos avaliados fornecem
+peças desse fluxo, mas não uma integração empresarial pronta e testada neste
+ambiente. Não cadastre fotos como substituto de credencial facial.

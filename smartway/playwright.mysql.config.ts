@@ -14,7 +14,7 @@ export default defineConfig({
   timeout: 120_000,
   use: { baseURL: "http://localhost:3101" },
   webServer: {
-    command: "npm run dev -- --port 3101",
+    command: "npx next dev -p 3101",
     url: "http://localhost:3101/login",
     reuseExistingServer: false,
     timeout: 120_000,

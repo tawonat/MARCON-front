@@ -580,8 +580,8 @@
   background: white;
 }
 .largeArt {
-  height: min(58vw, 590px);
-  min-height: 420px;
+  height: clamp(330px, 40vw, 500px);
+  min-height: 0;
 }
 .largeArt .artBack,
 .largeArt .artMid,
@@ -592,7 +592,7 @@
 }
 .visualCaption {
   position: absolute;
-  bottom: 20px;
+  bottom: 48px;
   left: 22px;
   color: #526177;
   font-size: 10px;
@@ -863,10 +863,12 @@
     height: 190px;
   }
   .sectionHeading {
-    align-items: start;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
   }
   .count {
-    margin-top: 25px;
+    margin-top: 0;
   }
   .detailInfo {
     padding-top: 0;
@@ -1046,6 +1048,16 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.employeeDetailNav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-bottom: 24px;
+}
+.employeeDetailNav .backLink {
+  margin: 0;
+}
 .cartShortcut {
   display: inline-flex;
   align-items: center;
@@ -1067,7 +1079,8 @@
 }
 @media (max-width: 520px) {
   .employeeCatalogTools {
-    justify-content: flex-end;
+    justify-content: space-between;
+    width: 100%;
   }
   .employeeCatalogTools .count {
     margin-top: 0;

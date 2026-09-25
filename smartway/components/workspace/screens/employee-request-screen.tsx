@@ -296,12 +296,14 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
   if (isDetail && selectedPart) {
     return (
       <main className={styles.content}>
-        <Link href="/employee/request#carrinho" className={styles.cartShortcut}>
-          <ShoppingCart size={17} /> Acessar carrinho ({cart.length})
-        </Link>
-        <Link href="/employee/request" className={styles.backLink}>
-          <ArrowLeft size={18} /> Voltar ao catálogo
-        </Link>
+        <div className={styles.employeeDetailNav}>
+          <Link href="/employee/request#carrinho" className={styles.cartShortcut}>
+            <ShoppingCart size={17} /> Acessar carrinho ({cart.length})
+          </Link>
+          <Link href="/employee/request" className={styles.backLink}>
+            <ArrowLeft size={18} /> Voltar ao catálogo
+          </Link>
+        </div>
         <div className={styles.detailGrid}>
           <div className={styles.detailArtFrame}>
             <PartArt part={selectedPart} large />

@@ -93,6 +93,7 @@ test("employee area requires an employee session", async ({ page }) => {
   await page.getByLabel("E-mail ou matrícula").fill("rafael@marcon.demo");
   await page.getByLabel("Senha", { exact: true }).fill("Marcon@123");
   await page.getByRole("button", { name: "Entrar", exact: true }).click();
+  await expect(page).toHaveURL("/inicio/admin");
   await page.goto("/employee/request");
   await expect(page).toHaveURL("/inicio/admin");
 });

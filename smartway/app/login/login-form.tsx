@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Eye,
   EyeOff,
+  ScanFace,
   LoaderCircle,
   LockKeyhole,
   Radio,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { useLogin } from "./use-login";
 import { RfidAccess } from "./components/rfid-access";
+import { FaceCameraTest } from "./components/face-camera-test";
 import styles from "./login.module.css";
 
 export default function LoginForm({ children, demoMode = true }: { children: ReactNode; demoMode?: boolean }) {
@@ -30,6 +32,7 @@ export default function LoginForm({ children, demoMode = true }: { children: Rea
   } = useLogin();
   const [showPassword, setShowPassword] = useState(false);
   const [rfidActive, setRfidActive] = useState(false);
+  const [faceActive, setFaceActive] = useState(false);
   const identityRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef(false);
   const errorDescription = error ? "login-error" : undefined;
@@ -55,6 +58,8 @@ export default function LoginForm({ children, demoMode = true }: { children: Rea
     <>
       {rfidActive ? (
         <RfidAccess onCancel={cancelRfid} />
+      ) : faceActive ? (
+        <FaceCameraTest onCancel={() => setFaceActive(false)} />
       ) : (
         <>
           <form className={styles.form} onSubmit={submit} aria-busy={isBusy}>
@@ -143,26 +148,37 @@ export default function LoginForm({ children, demoMode = true }: { children: Rea
               )}
             </button>
           </form>
-          {demoMode && <div className={styles.alternativeAccess}>
+          <div className={styles.alternativeAccess}>
             <div className={styles.divider}>
               <span />
-              ou entre com RFID
+              outras formas de acesso
               <span />
             </div>
-            <button
-              className={styles.rfidButton}
-              type="button"
-              disabled={isBusy}
-              onClick={startRfid}
-            >
-              <Radio size={20} aria-hidden="true" />
-              <span>Ativar leitor RFID</span>
-              <span className={styles.simulationTag}>Simulação</span>
+            <button className={styles.rfidButton} type="button" disabled={!demoMode || isBusy}
+              onClick={() => setFaceActive(true)} aria-describedby="face-access-note">
+              <ScanFace size={20} aria-hidden="true" />
+              <span>{demoMode ? "Testar identificação facial" : "Entrar com identificação facial"}</span>
+              <span className={styles.simulationTag}>{demoMode ? "Teste de câmera" : "Em configuração"}</span>
             </button>
-            <p className={styles.rfidNote}>
-              Leitura simulada do cartão, sem confirmação por senha.
+            <p id="face-access-note" className={styles.rfidNote}>
+              {demoMode ? "Prévia local da câmera, sem login e sem salvar imagens." : "Disponível após configurar a verificação facial segura no servidor."}
             </p>
-          </div>}
+            {demoMode && <>
+              <button
+                className={styles.rfidButton}
+                type="button"
+                disabled={isBusy}
+                onClick={startRfid}
+              >
+                <Radio size={20} aria-hidden="true" />
+                <span>Ativar leitor RFID</span>
+                <span className={styles.simulationTag}>Simulação</span>
+              </button>
+              <p className={styles.rfidNote}>
+                Leitura simulada do cartão, sem confirmação por senha.
+              </p>
+            </>}
+          </div>
         </>
       )}
       <p className={styles.securityNote}>

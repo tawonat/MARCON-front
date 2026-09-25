@@ -21,6 +21,6 @@ export async function POST(request: NextRequest) {
   }
   if (databaseEnabled()) await clearFailedLogins(identity);
   const response = NextResponse.json({ destination: `/inicio/${user.role}` });
-  response.cookies.set(cookieName, createSession(user.id), { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "lax", path: "/", maxAge: 8 * 60 * 60 });
+  response.cookies.set(cookieName, createSession(user.id, account?.passwordHash), { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "lax", path: "/", maxAge: 8 * 60 * 60 });
   return response;
 }

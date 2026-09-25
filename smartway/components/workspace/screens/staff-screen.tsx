@@ -33,6 +33,7 @@ export function StaffScreen({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffUser>(emptyUser);
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [idFilter, setIdFilter] = useState("");
   const [emailFilter, setEmailFilter] = useState("");
   const [sectorFilter, setSectorFilter] = useState("Todos");
@@ -62,11 +63,16 @@ export function StaffScreen({
     setEditingId(user?.id ?? null);
     setForm(user ? { ...user } : { ...emptyUser });
     setPassword("");
+    setConfirmPassword("");
     setFormOpen(true);
   }
 
   async function saveUser(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (persistent && password !== confirmPassword) {
+      setMessage("As senhas informadas não coincidem.");
+      return;
+    }
     const user: StaffUser = {
       ...form,
       id: form.id.trim(),
@@ -100,7 +106,7 @@ export function StaffScreen({
       try {
         await runAction({ type: "saveUser", user, editingId, password });
         setMessage(editingId ? "Usuário atualizado." : "Usuário cadastrado.");
-        setFormOpen(false); setEditingId(null); setPassword("");
+        setFormOpen(false); setEditingId(null); setPassword(""); setConfirmPassword("");
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Não foi possível salvar o usuário.");
       }
@@ -274,6 +280,13 @@ export function StaffScreen({
                 <input type="password" autoComplete="new-password" minLength={12} required={!editingId}
                   value={password} onChange={(event) => setPassword(event.target.value)}
                   placeholder="Pelo menos 12 caracteres" />
+              </label>
+            )}
+            {persistent && (
+              <label>Confirme a senha
+                <input type="password" autoComplete="new-password" required={!editingId || Boolean(password)}
+                  value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Digite a senha novamente" />
               </label>
             )}
           </div>

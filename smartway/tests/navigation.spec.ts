@@ -34,3 +34,36 @@ for (const account of accounts) {
     await expect(page).toHaveURL("/login");
   });
 }
+
+test("solicitações do líder não ampliam a página em tablet", async ({ page, baseURL }) => {
+  const login = await page.request.post("/api/login", {
+    headers: { origin: baseURL! },
+    data: { identity: "1002", password: "Marcon@123" },
+  });
+  expect(login.status()).toBe(200);
+  for (const width of [768, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/department-head/requests");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  }
+});
+
+test("perfil exige login e informa quando o MySQL não está configurado", async ({ page, baseURL }) => {
+  await page.goto("/profile");
+  await expect(page).toHaveURL("/login");
+  const login = await page.request.post("/api/login", {
+    headers: { origin: baseURL! },
+    data: { identity: "1001", password: "Marcon@123" },
+  });
+  expect(login.status()).toBe(200);
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto("/profile");
+  await expect(page.getByRole("heading", { name: "Editar perfil" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Salvar perfil" })).toBeDisabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  const response = await page.request.patch("/api/profile", {
+    headers: { origin: baseURL! },
+    data: { name: "Ana Souza", email: "ana@marcon.demo", currentPassword: "Marcon@123" },
+  });
+  expect(response.status()).toBe(503);
+});

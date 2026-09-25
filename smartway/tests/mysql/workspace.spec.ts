@@ -38,6 +38,21 @@ test("MySQL: perfis, operações e concorrência de saldo", async ({ playwright 
       sector: "Teste", role: "Funcionário", block: "Bloco A", active: true,
     } });
     const createdUser = await login(employee);
+    const newPassword = `NewPassword@${suffix}`;
+    expect((await createdUser.patch("/api/profile", { data: {
+      name: "Teste integração", email: `${employee}@example.test`, currentPassword: "senha-incorreta", newPassword,
+    } })).status()).toBe(401);
+    expect((await createdUser.patch("/api/profile", { data: {
+      name: "Teste Perfil", email: `${employee}.novo@example.test`, currentPassword: process.env.SEED_PASSWORD, newPassword,
+    } })).status()).toBe(200);
+    const [profileRows] = await pool.query<RowDataPacket[]>(
+      "SELECT name, email FROM users WHERE employee_no = ?", [employee],
+    );
+    expect(profileRows[0].name).toBe("Teste Perfil");
+    expect(profileRows[0].email).toBe(`${employee}.novo@example.test`);
+    expect((await createdUser.get("/api/profile")).status()).toBe(401);
+    expect((await createdUser.post("/api/login", { data: { identity: employee, password: process.env.SEED_PASSWORD } })).status()).toBe(401);
+    expect((await createdUser.post("/api/login", { data: { identity: employee, password: newPassword } })).status()).toBe(200);
     await action(admin, { type: "toggleUser", id: employee, active: false });
     expect((await createdUser.get("/api/workspace")).status()).toBe(401);
     expect((await createdUser.post("/api/login", { data: { identity: employee, password: process.env.SEED_PASSWORD } })).status()).toBe(401);

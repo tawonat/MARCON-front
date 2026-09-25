@@ -570,6 +570,26 @@
   border-color: var(--blue);
   background: #1d419c06;
 }
+.rfidButton[aria-describedby="face-access-note"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+.faceTest {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+.faceTest h2 { margin: 0 0 8px; color: var(--ink); font-size: 19px; }
+.faceTest p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+.faceTest video { display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 9px; background: #0f2038; object-fit: cover; transform: scaleX(-1); }
+.faceTestActions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+.faceTestActions button { min-height: 44px; padding: 9px 14px; border: 1px solid var(--blue); border-radius: 8px; background: white; color: var(--blue); font: inherit; font-weight: 600; cursor: pointer; }
+.faceTestActions button:first-child { background: var(--blue); color: white; }
+.faceTestError { color: #b42318 !important; }
+.rfidNote + .rfidButton {
+  margin-top: 16px;
+}
 .simulationTag {
   padding: 4px 6px;
   border-radius: 4px;
