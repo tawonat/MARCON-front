@@ -57,9 +57,7 @@ cobrem os quatro logins fixos, retorno, logout e bloqueio de acesso entre perfis
 Para testar com outro servidor dev aberto, rode primeiro `npm run build` e defina
 `PLAYWRIGHT_PRODUCTION=1`, `PLAYWRIGHT_PORT=3100` e `PLAYWRIGHT_CHANNEL=chrome`.
 A configuração demo desativa `DB_NAME`, `DB_USER` e `DATABASE_URL` somente no processo de teste.
-O MySQL local ainda retorna `ER_ACCESS_DENIED_ERROR` com as credenciais de exemplo.
-Migração, seed e testes reais permanecem pendentes até configurar o acesso real.
-**MySQL não validado para produção.**
+Os testes de integração exigem credenciais válidas para o MySQL configurado.
 
 ## Perfil e autenticação facial
 
@@ -68,12 +66,41 @@ a senha atual; cinco tentativas incorretas bloqueiam novas tentativas por 15
 minutos. A troca de senha invalida as sessões anteriores. O administrador define
 e confirma a senha inicial no cadastro de usuários.
 
-O teste de câmera foi substituído por passkeys WebAuthn. Com MySQL configurado,
+Também estão disponíveis passkeys WebAuthn. Com MySQL configurado,
 o usuário entra com senha, abre `/profile` e cadastra uma passkey integrada ao dispositivo.
 Depois, pode informar e-mail ou matrícula e entrar com a passkey. O aparelho
-pode solicitar rosto, digital ou PIN conforme o sistema, sem chave USB. A aplicação não recebe
+pode solicitar rosto, digital ou PIN conforme o sistema, sem chave USB. Neste fluxo de passkeys, a aplicação não recebe
 nem armazena imagens ou dados biométricos. O servidor verifica o desafio, a
 assinatura e a credencial cadastrada antes de criar a sessão. Execute
 `npm run db:migrate` para criar as tabelas de passkeys no banco existente.
 WebAuthn requer HTTPS em produção (localhost funciona para desenvolvimento)
 e um domínio estável: passkeys cadastradas em outro domínio não funcionam.
+
+### Reconhecimento pela câmera, sem serviços externos
+
+`npm ci` copia os modelos do Human 3.3.6 para `public/models/human` (também via
+`npm run face:models`). Execute `npm run db:migrate`. Em localhost ou HTTPS,
+entre com senha, abra `/profile`, confirme senha/consentimento e cadastre seis
+amostras seguindo os movimentos e a pequena mudança de iluminação. No login,
+informe matrícula/e-mail e escolha **Entrar com reconhecimento facial**.
+O perfil permite excluir ou substituir o cadastro; senha e passkeys continuam disponíveis.
+
+Somente embeddings faceres são persistidos, com AES-256-GCM e chave derivada de
+`SESSION_SECRET` por HKDF. Proteja esse segredo e os backups do banco; sua troca
+exige novo cadastro facial. Fotos, vídeos, landmarks, idade e gênero não são persistidos.
+Os modelos carregam sob demanda; a câmera encerra ao cancelar, ocultar a aba ou sair.
+
+Política em `lib/face-policy.ts`: similaridade Human ≥ **0,85** com pelo menos
+3 das 6 referências, para **todas** as 5 capturas do login; consistência do
+cadastro ≥ 0,80 entre cada par. Limiar inicial conservador, testado com fixtures
+sintéticas, sem estimativa de FAR/FRR: calibre com pessoas e iluminação reais
+antes de ampliar o uso. [Escala do Human](https://github.com/vladmandic/human/wiki/Embedding).
+Há cinco tentativas por conta/modalidade a cada 15 minutos e desafios descartáveis de 120 s.
+A sessão depende da comparação no servidor, nunca de `recognized: true`.
+Presença por movimentos aleatórios é uma checagem simples: embeddings e medições
+vêm do navegador, portanto cliente adulterado, vetores roubados, câmeras virtuais
+e deepfakes podem burlá-la. Não equivale à proteção de uma passkey de hardware.
+
+Testes: `npx playwright test tests/face-policy.spec.ts tests/face-model.spec.ts`;
+com o banco de teste configurado, `npx playwright test -c playwright.mysql.config.ts face`.
+As fixtures de imagem em `tests/fixtures` são sintéticas, da coleção MIT do Human.

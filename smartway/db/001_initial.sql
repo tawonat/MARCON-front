@@ -203,3 +203,25 @@ CREATE TABLE IF NOT EXISTS passkey_challenges (
   expires_at DATETIME(3) NOT NULL,
   CONSTRAINT fk_passkey_challenge_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS face_credentials (
+  user_id BIGINT UNSIGNED PRIMARY KEY,
+  embeddings MEDIUMBLOB NOT NULL,
+  model_version VARCHAR(64) NOT NULL,
+  consent_version VARCHAR(40) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_face_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS face_challenges (
+  token_hash BINARY(32) PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  purpose ENUM('register','login') NOT NULL,
+  poses JSON NOT NULL,
+  session_hash BINARY(32) NULL,
+  password_hash VARCHAR(190) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  expires_at DATETIME(3) NOT NULL,
+  CONSTRAINT fk_face_challenge_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_face_challenge_expiry (expires_at)
+) ENGINE=InnoDB;

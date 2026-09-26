@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { AccountRole } from "@/lib/accounts";
 import styles from "./profile.module.css";
+import { FaceRegister } from "./face-register";
 import { PasskeyRegister } from "./passkey-register";
 
 export default function ProfileForm({ name: initialName, email: initialEmail, role, persistent }: {
@@ -73,6 +74,7 @@ export default function ProfileForm({ name: initialName, email: initialEmail, ro
         {message && <p role="status" className={`${styles.feedback} ${styles.success}`}>{message}</p>}
         <div className={styles.actions}><button className={styles.button} type="submit" disabled={!persistent || busy}>{busy ? "Salvando…" : "Salvar perfil"}</button></div>
       </form>
+      {persistent && <FaceRegister />}
       {persistent && <PasskeyRegister />}
     </div>
   </main>;

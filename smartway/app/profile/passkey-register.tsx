@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { platformAuthenticatorIsAvailable, startRegistration } from "@simplewebauthn/browser";
+import { passkeyRequest, passkeyError } from "@/lib/passkey-client";
+import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser";
 import styles from "./profile.module.css";
 
 export function PasskeyRegister() {
@@ -31,16 +33,13 @@ export function PasskeyRegister() {
     setBusy(true); setError(""); setMessage("");
     try {
       if (!(await platformAuthenticatorIsAvailable())) throw new Error("A passkey integrada não está disponível neste dispositivo.");
-      const start = await fetch("/api/passkey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "register-options", password }) });
-      const options = await start.json();
-      if (!start.ok) throw new Error(options.error || "Não foi possível iniciar o cadastro.");
+      const options = await passkeyRequest<PublicKeyCredentialCreationOptionsJSON>({ action: "register-options", password });
       const attestation = await startRegistration({ optionsJSON: options });
-      const finish = await fetch("/api/passkey", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "register-verify", response: attestation }) });
-      const result = await finish.json();
-      if (!finish.ok) throw new Error(result.error || "Não foi possível cadastrar a passkey.");
+      const result = await passkeyRequest<{ ok: boolean }>({ action: "register-verify", response: attestation });
+      if (result.ok !== true) throw new Error("Não foi possível confirmar o cadastro da passkey.");
       setPassword("");
       setMessage("Passkey cadastrada. Ela já pode ser usada no login.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível cadastrar a passkey."); }
+    } catch (cause) { setError(passkeyError(cause)); }
     finally { setBusy(false); }
   }
 

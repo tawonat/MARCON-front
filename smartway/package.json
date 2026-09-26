@@ -11,11 +11,14 @@
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:seed": "node scripts/db-seed.mjs",
     "format": "prettier --write app/login app/globals.css tests playwright.config.ts",
-    "format:check": "prettier --check app/login app/globals.css tests playwright.config.ts"
+    "format:check": "prettier --check app/login app/globals.css tests playwright.config.ts",
+    "face:models": "node scripts/face-models.mjs",
+    "postinstall": "npm run face:models"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^14.0.0",
     "@simplewebauthn/server": "^14.0.3",
+    "@vladmandic/human": "3.3.6",
     "lucide-react": "^1.48.0",
     "mysql2": "^3.24.4",
     "next": "16.3.6",
