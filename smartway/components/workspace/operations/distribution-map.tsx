@@ -1,23 +1,69 @@
 ﻿"use client";
 import { useState } from "react";
-import type { FacilityGraph, Path } from "@/lib/routing";
+import { shortestPath, type FacilityGraph, type Path } from "@/lib/routing";
 import { RouteSummary } from "./route-summary";
-export function DistributionMap({ version }: { version: number | null }) {
+export function DistributionMap({
+  version,
+  from,
+  to,
+}: {
+  version: number | null;
+  from?: string;
+  to?: string;
+}) {
   const [graph, setGraph] = useState<FacilityGraph | null>(null),
     [route, setRoute] = useState<Path | null>(null),
     [message, setMessage] = useState(""),
     [start, setStart] = useState(""),
     [end, setEnd] = useState("");
+  const [busy, setBusy] = useState(false);
   async function load() {
+    setBusy(true);
+    setMessage("Carregando mapa publicado…");
     try {
       const r = await fetch("/api/maps"),
         body = await r.json();
       if (!r.ok) throw Error(body.error);
       const m = body.maps.find((m: { id: number }) => Number(m.id) === version);
-      if (!m) throw Error("Mapa indisponível. Atualize o relatório.");
-      setGraph(typeof m.graph === "string" ? JSON.parse(m.graph) : m.graph);
+      if (!m || m.status !== "Publicada")
+        throw Error("Mapa indisponível. Atualize o relatório.");
+      const g: FacilityGraph =
+        typeof m.graph === "string" ? JSON.parse(m.graph) : m.graph;
+      setGraph(g);
+      setMessage("");
+      if (from && to) {
+        const point = (name: string) =>
+          g.nodes.find(
+            (n) =>
+              n.warehouseId ===
+              Number(
+                body.warehouses.find((w: { name: string }) => w.name === name)
+                  ?.id,
+              ),
+          )?.id;
+        const a = point(from),
+          b = point(to);
+        const path =
+          a && b
+            ? shortestPath(
+                { ...g, scaleCalibrated: g.scaleCalibrated === true },
+                a,
+                b,
+              )
+            : null;
+        setStart(a ?? "");
+        setEnd(b ?? "");
+        setRoute(path);
+        setMessage(
+          path
+            ? `Mapa publicado #${version}; percurso pelos caminhos cadastrados.`
+            : "Rota indisponível: faltam vínculos de origem/destino ou caminhos transitáveis.",
+        );
+      }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Falha ao carregar mapa.");
+    } finally {
+      setBusy(false);
     }
   }
   if (!version)
@@ -30,8 +76,16 @@ export function DistributionMap({ version }: { version: number | null }) {
   return (
     <div>
       {!graph ? (
-        <button className="button secondary" onClick={() => void load()}>
-          Abrir planta publicada
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void load()}
+        >
+          {busy
+            ? "Carregando rota…"
+            : from && to
+              ? "Ver rota"
+              : "Abrir planta publicada"}
         </button>
       ) : (
         <>

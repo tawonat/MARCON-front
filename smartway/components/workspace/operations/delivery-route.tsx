@@ -1,119 +1,234 @@
-﻿"use client";
+"use client";
 import { useEffect, useState } from "react";
 import type { Request } from "@/lib/demo-data";
+import type { DeliveryPlan } from "@/lib/delivery-planning";
+import type { FacilityGraph } from "@/lib/routing";
 import { RouteSummary } from "./route-summary";
-import {
-  planStops,
-  shortestPath,
-  type FacilityGraph,
-  type Path,
-} from "@/lib/routing";
+import { DashboardDialog } from "./dashboard-dialog";
+type History = {
+  id: number;
+  map_version_id: number | null;
+  event: string;
+  created_at: string;
+  actor: string;
+  payload: DeliveryPlan;
+};
 export function DeliveryRoute({ request }: { request: Request }) {
-  const [data, setData] = useState<{
-      id: number;
-      graph: FacilityGraph;
-      route: Path | null;
-    } | null>(null),
-    [error, setError] = useState("");
+  const [history, setHistory] = useState<History[]>([]),
+    [page, setPage] = useState(1);
+  const [data, setData] = useState<
+    | (DeliveryPlan & {
+        graph: FacilityGraph | null;
+        mapVersion: number | null;
+      })
+    | null
+  >(null);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [confirm, setConfirm] = useState(false);
+  const [destinations, setDestinations] = useState<string[]>([]),
+    [start, setStart] = useState("");
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/maps", { signal: controller.signal })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error);
-        const map = body.maps.find(
-          (m: { status: string }) => m.status === "Publicada",
-        );
-        if (!map)
-          throw new Error(
-            "Rota indisponível: nenhum mapa publicado. Continue a separação manual.",
-          );
-        const graph: FacilityGraph =
-          typeof map.graph === "string" ? JSON.parse(map.graph) : map.graph;
-        const ids = (request.allocations ?? []).map(
-          (a) =>
-            a.nodeId ||
-            graph.nodes.find(
-              (n) =>
-                n.warehouseId ===
-                body.warehouses.find(
-                  (w: { name: string }) => w.name === a.warehouse,
-                )?.id,
-            )?.id,
-        );
-        const blockId = body.blocks.find(
-          (b: { name: string }) => b.name === request.block,
-        )?.id;
-        const end =
-          graph.nodes.find(
-            (n) => n.blockId === blockId && n.kind === "delivery",
-          ) ?? graph.nodes.find((n) => n.blockId === blockId);
-        let route: Path | null = null;
-        if (ids.length && ids.every(Boolean) && end) {
-          route = planStops(graph, ids[0]!, ids as string[]);
-          const tail =
-            route && shortestPath(graph, route.nodes.at(-1)!, end.id);
-          route =
-            route && tail
-              ? {
-                  nodes: [...route.nodes, ...tail.nodes.slice(1)],
-                  cost: route.cost + tail.cost,
-                  stops: [...(route.stops ?? []), end.id],
-                }
-              : null;
-        }
-        setData({ id: map.id, graph, route });
+    fetch(`/api/maps?delivery=${request.id}&page=${page}`, {
+      signal: controller.signal,
+    })
+      .then(async (r) => {
+        const b = await r.json();
+        if (!r.ok) throw new Error(b.error);
+        setHistory(b.history);
       })
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       });
     return () => controller.abort();
-  }, [request]);
-  if (error) return <p role="status">{error}</p>;
-  if (!data) return <p>Calculando percurso…</p>;
-  if (!data.route)
-    return (
-      <p>
-        Rota indisponível: pontos sem ligação transitável. Continue manualmente.
-      </p>
-    );
+  }, [request.id, page, revision]);
+  async function calculate(depart = false) {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await fetch("/api/maps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: depart ? "departDelivery" : "planDelivery",
+          requestId: request.id,
+          start,
+          destinations,
+          manual: depart && !data?.route,
+        }),
+      });
+      const b = await r.json();
+      if (!r.ok) throw new Error(b.error);
+      setData(b);
+      setStart(b.start);
+      setPage(1);
+      setRevision((v) => v + 1);
+      setConfirm(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha no cálculo.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <details>
-      <summary>Percurso sugerido</summary>
+    <section className="map-route-summary">
+      <h3>Rota da entrega #{request.id}</h3>
       <p>
-        {data.route.nodes
-          .map((id) => data.graph.nodes.find((n) => n.id === id)?.label)
-          .join(" → ")}
+        O cálculo usa a versão publicada e não baixa estoque. A saída recalcula
+        o percurso com os bloqueios atuais e preserva os cálculos anteriores.
       </p>
-      <RouteSummary graph={data.graph} route={data.route} />
-      <svg
-        className="ops-map"
-        viewBox="0 0 1000 700"
-        role="img"
-        aria-label="Percurso pelos caminhos cadastrados"
+      {request.status === "Aprovada" && (
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void calculate()}
+        >
+          {busy ? "Calculando…" : "Calcular / recalcular rota"}
+        </button>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {data && (
+        <>
+          <p role="status">{data.reason}</p>
+          {data.graph && (
+            <div className="ops-form">
+              <label>
+                Origem do percurso
+                <select
+                  value={start}
+                  onChange={(e) => setStart(e.target.value)}
+                >
+                  {data.graph.nodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <fieldset>
+                <legend>Entregas adicionais (opcional)</legend>
+                <div className="map-stop-list">
+                  {data.graph.nodes
+                    .filter((n) => n.kind === "delivery")
+                    .map((n) => (
+                      <label key={n.id}>
+                        <input
+                          type="checkbox"
+                          checked={destinations.includes(n.id)}
+                          onChange={(e) =>
+                            setDestinations((d) =>
+                              e.target.checked
+                                ? [...d, n.id]
+                                : d.filter((id) => id !== n.id),
+                            )
+                          }
+                        />
+                        {n.label}
+                      </label>
+                    ))}
+                </div>
+              </fieldset>
+            </div>
+          )}
+          {data.graph && data.route && (
+            <>
+              <RouteSummary graph={data.graph} route={data.route} />
+              <svg
+                className="ops-map"
+                viewBox="0 0 1000 700"
+                role="img"
+                aria-label="Percurso de entrega"
+              >
+                <image
+                  href={`/api/maps?image=${data.mapVersion}`}
+                  width="1000"
+                  height="700"
+                  preserveAspectRatio="none"
+                />
+                <polyline
+                  fill="none"
+                  stroke="#1559db"
+                  strokeWidth="6"
+                  points={data.route.nodes
+                    .map((id) => {
+                      const n = data.graph!.nodes.find((n) => n.id === id)!;
+                      return `${n.x * 1000},${n.y * 700}`;
+                    })
+                    .join(" ")}
+                />
+              </svg>
+            </>
+          )}
+          <button
+            className="button primary"
+            disabled={busy || history[0]?.event === "Saída" || start !== data.start || JSON.stringify(destinations) !== JSON.stringify(data.destinations)}
+            onClick={() => setConfirm(true)}
+          >
+            Registrar saída {data.route ? "com recálculo" : "manual"}
+          </button>
+        </>
+      )}
+      <details>
+        <summary>Histórico de rotas</summary>
+        {!history.length ? (
+          <p>Nenhum cálculo registrado nesta página.</p>
+        ) : (
+          history.map((h) => (
+            <article className="ops-suggestion" key={h.id}>
+              <p>
+                <strong>
+                  {h.event} · mapa {h.map_version_id ?? "indisponível"}
+                </strong>
+                <br />
+                {h.created_at} · {h.actor}
+                <br />
+                {h.payload.labels.join(" → ")}
+                <br />
+                {h.payload.route
+                  ? `Custo: ${h.payload.route.cost.toFixed(1)} ${h.payload.metric}`
+                  : h.payload.reason}
+              </p>
+            </article>
+          ))
+        )}
+        <button
+          className="button secondary"
+          disabled={page === 1}
+          onClick={() => setPage((p) => p - 1)}
+        >
+          Rotas anteriores
+        </button>
+        <button
+          className="button secondary"
+          disabled={history.length < 20}
+          onClick={() => setPage((p) => p + 1)}
+        >
+          Mais registros
+        </button>
+      </details>
+      <DashboardDialog
+        compact
+        open={confirm}
+        title="Confirmar saída da entrega"
+        onClose={() => setConfirm(false)}
       >
-        <image
-          href={"/api/maps?image=" + data.id}
-          width="1000"
-          height="700"
-          preserveAspectRatio="none"
-        />
-        <polyline
-          fill="none"
-          stroke="#1559db"
-          strokeWidth="6"
-          points={data.route.nodes
-            .map((id) => {
-              const n = data.graph.nodes.find((n) => n.id === id)!;
-              return `${n.x * 1000},${n.y * 700}`;
-            })
-            .join(" ")}
-        />
-      </svg>
-      <p>
-        Estimativa de caminhada; não movimenta estoque. Coletas precedem a
-        entrega.
-      </p>
-    </details>
+        <p>
+          {data?.route
+            ? "Recalcular com o mapa publicado atual e registrar a saída?"
+            : "Confirmar operação manual, sem rota válida?"}{" "}
+          O estoque só é baixado na confirmação da entrega. Se mudou origem ou
+          paradas, recalcule antes de sair.
+        </p>
+        <button
+          className="button primary"
+          disabled={busy}
+          onClick={() => void calculate(true)}
+        >
+          Confirmar saída
+        </button>
+      </DashboardDialog>
+    </section>
   );
 }

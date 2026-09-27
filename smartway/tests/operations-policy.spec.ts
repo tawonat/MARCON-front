@@ -63,6 +63,22 @@ test("previsão distingue histórico insuficiente e validação temporal", () =>
     "Dados insuficientes",
   );
 });
+
+test("rota calibrada usa somente metros, sem misturar tempos manuais", () => {
+  const calibrated = shortestPath(
+    { ...graph, scaleCalibrated: true, metersPerPixel: 0.1 },
+    "a",
+    "c",
+  )!;
+  expect(calibrated.nodes).toEqual(["a", "c"]);
+  expect(calibrated.cost).toBeCloseTo(Math.sqrt(200));
+  const estimated = shortestPath(
+    { ...graph, scaleCalibrated: false },
+    "a",
+    "c",
+  )!;
+  expect(estimated.cost).toBeCloseTo(Math.sqrt(20000));
+});
 test("distribuição não duplica excesso, respeita entradas e capacidade", () => {
   const suggestions = suggestTransfers([
     {

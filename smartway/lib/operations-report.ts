@@ -4,7 +4,7 @@ import { getPool } from "./db";
 import type { RowDataPacket } from "mysql2";
 import { ActionError, can } from "./permissions";
 import { predict, suggestTransfers, type Forecast } from "./forecast";
-import { shortestPath, type FacilityGraph } from "./routing";
+import { graphProblems, shortestPath, type FacilityGraph } from "./routing";
 import { integrationStatus } from "./integrations/corporate";
 export type ReportFilter = {
   from?: string;
@@ -40,6 +40,12 @@ export type ReportRow = {
   analysis: Forecast;
   capacity: number | null;
   incoming: number;
+  distribution?: {
+    consumption: { block: string; quantity: number }[];
+    proximity: string;
+    pendingOutgoing: number;
+    pendingIncoming: number;
+  };
 };
 export async function operationsReport(user: Account, filters: ReportFilter) {
   filters = { ...filters, code: filters.code?.trim().toUpperCase() };
@@ -79,7 +85,7 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
           ? [user.block ?? ""]
           : [];
   const [movements] = await pool.execute<RowDataPacket[]>(
-    `SELECT r.sector AS request_sector,r.status AS request_status,r.priority AS request_priority,m.id,m.part_id,m.warehouse_id,m.kind,m.quantity,m.reason,au.name AS actor,p.code,DATE_FORMAT(m.created_at,'%Y-%m-%d') AS date,b.id AS block_id,b.name AS block,u.employee_no AS requester FROM stock_movements m JOIN users au ON au.id=m.actor_id JOIN parts p ON p.id=m.part_id LEFT JOIN requests r ON r.id=m.request_id LEFT JOIN users u ON u.id=r.requester_id LEFT JOIN blocks b ON b.id=m.block_id WHERE ${scope} AND m.created_at>=LEAST(?,UTC_DATE()-INTERVAL 180 DAY) AND m.created_at<DATE_ADD(GREATEST(?,UTC_DATE()),INTERVAL 1 DAY)`,
+    `SELECT r.sector AS request_sector,r.status AS request_status,r.priority AS request_priority,m.id,m.part_id,m.warehouse_id,m.kind,m.quantity,m.reason,au.name AS actor,p.code,DATE_FORMAT(m.created_at,'%Y-%m-%d') AS date,b.id AS block_id,b.name AS block,u.employee_no AS requester FROM stock_movements m JOIN users au ON au.id=m.actor_id JOIN parts p ON p.id=m.part_id LEFT JOIN requests r ON r.id=m.request_id LEFT JOIN users u ON u.id=r.requester_id LEFT JOIN blocks b ON b.id=m.block_id WHERE ${scope} AND m.created_at>=? AND m.created_at<DATE_ADD(?,INTERVAL 1 DAY)`,
     [...params, from, to],
   );
   const [warehouses] = await pool.query<RowDataPacket[]>(
@@ -88,11 +94,18 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
   const [published] = await pool.query<RowDataPacket[]>(
     "SELECT id,graph FROM map_versions WHERE status='Publicada'",
   );
-  const graph = published[0]
+  let graph = published[0]
     ? ((typeof published[0].graph === "string"
         ? JSON.parse(published[0].graph)
         : published[0].graph) as FacilityGraph)
     : null;
+  if (graph && (!graph.reviewed || graphProblems(graph).length)) graph = null;
+  if (graph) graph.scaleCalibrated = graph.scaleCalibrated === true;
+  const [pendingTransfers] = can(user.role, "planning")
+    ? await pool.query<RowDataPacket[]>(
+        "SELECT part_id,source_warehouse_id,destination_warehouse_id,quantity,status FROM stock_transfers WHERE status IN ('Solicitada','Em trânsito')",
+      )
+    : [[]];
   const [incomingRows] = can(user.role, "planning")
     ? await pool.query<RowDataPacket[]>(
         "SELECT e.*,p.code,w.name AS warehouse FROM expected_receipts e JOIN parts p ON p.id=e.part_id JOIN warehouses w ON w.id=e.warehouse_id ORDER BY e.due_date DESC LIMIT 1000",
@@ -116,17 +129,25 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
     (p) => !filters.code || p.code === filters.code,
   )) {
     const first = firstDates.find((d) => Number(d.part_id) === p.id)?.first_at;
+    const endDay = to < today ? to : today;
+    const startDay =
+      first && String(first).slice(0, 10) > from
+        ? String(first).slice(0, 10)
+        : from;
     const days = Math.max(
       1,
       Math.min(
-        180,
+        367,
         first
-          ? Math.ceil((Date.now() - Date.parse(String(first))) / 86400000)
+          ? Math.floor((Date.parse(endDay) - Date.parse(startDay)) / 86400000) +
+              1
           : 1,
       ),
     );
     const relevant = observations.filter((m) => Number(m.part_id) === p.id),
-      history = relevant.filter((m) => m.kind === "saida" && m.date <= today);
+      history = relevant.filter(
+        (m) => m.kind === "saida" && m.date >= from && m.date <= endDay,
+      );
     function closest(blockId: number | null) {
       const candidates = warehouses.filter(
           (w) => Number(w.block_id) === blockId,
@@ -163,7 +184,7 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
     );
     for (const location of p.locations ?? []) {
       const daily = Array.from({ length: days }, (_, i) => {
-        const day = new Date(Date.now() - (days - 1 - i) * 86400000)
+        const day = new Date(Date.parse(endDay) - (days - 1 - i) * 86400000)
           .toISOString()
           .slice(0, 10);
         return history
@@ -211,6 +232,43 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
         )
         .reduce((s, r) => s + Number(r.quantity), 0);
       reportRows.push({
+        distribution: {
+          consumption: [
+            ...new Set(
+              history
+                .filter(
+                  (m) =>
+                    targetWarehouses.get(
+                      m.block_id ? Number(m.block_id) : null,
+                    ) === location.warehouseId,
+                )
+                .map((m) => String(m.block ?? "Sem bloco")),
+            ),
+          ].map((block) => ({
+            block,
+            quantity: history
+              .filter((m) => String(m.block ?? "Sem bloco") === block)
+              .reduce((s, m) => s + Number(m.quantity), 0),
+          })),
+          proximity: graph
+            ? `Grafo publicado #${published[0].id}; menor custo praticável (${graph.scaleCalibrated ? "metros" : "geometria estimada"}); sem ligação, vínculo do bloco ou Central.`
+            : "Sem mapa válido: vínculo do bloco ou Central; proximidade física não comprovada.",
+          pendingOutgoing: pendingTransfers
+            .filter(
+              (t) =>
+                Number(t.part_id) === p.id &&
+                Number(t.source_warehouse_id) === location.warehouseId &&
+                t.status === "Solicitada",
+            )
+            .reduce((s, t) => s + Number(t.quantity), 0),
+          pendingIncoming: pendingTransfers
+            .filter(
+              (t) =>
+                Number(t.part_id) === p.id &&
+                Number(t.destination_warehouse_id) === location.warehouseId,
+            )
+            .reduce((s, t) => s + Number(t.quantity), 0),
+        },
         code: p.code,
         item: p.name,
         unit: p.unit ?? "un",
@@ -250,19 +308,55 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
         reportRows.map((r) => ({
           code: r.code,
           warehouse: r.warehouse,
-          available: r.available,
+          available: Math.max(
+            0,
+            r.available - (r.distribution?.pendingOutgoing ?? 0),
+          ),
           target: r.target,
           minimum: r.minimum,
-          incoming: r.incoming,
+          incoming: r.incoming + (r.distribution?.pendingIncoming ?? 0),
           capacity: r.capacity,
+          reserved: r.reserved + (r.distribution?.pendingOutgoing ?? 0),
         })),
-      )
+      ).map((t) => {
+        const source = reportRows.find(
+          (r) => r.code === t.code && r.warehouse === t.from,
+        )!;
+        const dest = reportRows.find(
+          (r) => r.code === t.code && r.warehouse === t.to,
+        )!;
+        return {
+          ...t,
+          confidence: dest.analysis.confidence,
+          benefit:
+            dest.analysis.daily > 0
+              ? `Cobertura adicional estimada: ${(t.quantity / dest.analysis.daily).toFixed(1)} dias no destino. Não é ganho medido.`
+              : "Reposição do alvo cadastrado; consumo insuficiente para estimar benefício.",
+          evidence: {
+            period: { from, to },
+            sourceAvailable: source.available,
+            sourceReserved: source.reserved,
+            sourceMinimum: source.minimum,
+            sourceTarget: source.target,
+            destinationAvailable: dest.available,
+            destinationReserved: dest.reserved,
+            destinationTarget: dest.target,
+            forecast: dest.forecast,
+            leadDays: snapshot.stock.find((p) => p.code === t.code)?.leadDays,
+            incoming: dest.incoming,
+            ...dest.distribution,
+          },
+        };
+      })
     : [];
   for (const r of reportRows) {
     r.transfer = transfers
       .filter((t) => t.code === r.code && t.to === r.warehouse)
       .reduce((s, t) => s + t.quantity, 0);
-    r.buy = Math.max(0, r.buy - r.transfer);
+    r.buy = Math.max(
+      0,
+      r.buy - r.transfer - (r.distribution?.pendingIncoming ?? 0),
+    );
     r.cost =
       r.buy *
       (snapshot.stock.find((p) => p.code === r.code)?.estimatedCost ?? 0);
@@ -309,7 +403,7 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
     period: { from, to },
     generatedAt: new Date().toISOString(),
     source:
-      "MySQL local: baixas efetivas kind=saida; devoluções separadas. Previsão usa até 180 dias observáveis.",
+      "MySQL local: baixas efetivas kind=saida; devoluções separadas. Previsão usa dias observáveis do período selecionado até hoje; saldos são atuais.",
     rows: reportRows,
     transfers,
     incoming: incomingRows,

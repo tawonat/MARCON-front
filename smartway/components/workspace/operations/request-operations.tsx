@@ -185,10 +185,12 @@ export function RequestOperations({
           >
             Confirmar entrega e baixa
           </button>
-          <DeliveryRoute request={r} />
         </>
       )}
       {message && <p role="status">{message}</p>}
+      {can(role, "stock") && ["Aprovada", "Entregue"].includes(r.status) && (
+        <DeliveryRoute key={r.id} request={r} />
+      )}
     </section>
   );
 }

@@ -17,7 +17,7 @@ export function RouteSummary({
       </ol>
       <p>
         {graph.scaleCalibrated === true
-          ? `Distância total: ${legs.reduce((s, l) => s + (l.meters ?? 0), 0).toFixed(1)} m · caminhada estimada: ${Math.ceil(route.cost)} s.`
+          ? `Distância total: ${legs.reduce((s, l) => s + (l.meters ?? 0), 0).toFixed(1)} m · caminhada estimada: ${Math.ceil(route.cost / 1.2)} s.`
           : "Sem escala calibrada: distância e tempo indisponíveis. Ordem aproximada pela geometria da imagem."}
       </p>
       <details>

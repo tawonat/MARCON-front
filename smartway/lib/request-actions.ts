@@ -2,6 +2,7 @@
 import type { ResultSetHeader } from "mysql2";
 import type { Account } from "./accounts";
 import { randomUUID } from "node:crypto";
+import { recordDeliveryPlan } from "./delivery-planning";
 import { ActionError, demand, integer, text, reason } from "./permissions";
 import {
   available,
@@ -233,6 +234,14 @@ export async function executeRequestAction(
       scan(p, a.qrCode);
       if (integer(a.confirmedQuantity) !== Number(r.quantity))
         throw new ActionError("Confirme a quantidade exata separada.", 422);
+      const departure = await first(
+        c,
+        "SELECT id FROM delivery_route_history WHERE request_id=? AND event='Saída' LIMIT 1",
+        [id],
+      );
+      // Legacy/manual delivery confirmation still captures its planning decision atomically.
+      if (!departure)
+        await recordDeliveryPlan(c, user, { action: "planDelivery", atDelivery: true }, id);
       const reserved = await rows(
         c,
         "SELECT * FROM request_reservations WHERE request_id=? ORDER BY warehouse_id FOR UPDATE",

@@ -13,7 +13,8 @@ import { RequestOperations } from "./request-operations";
 import { DashboardDialog } from "./dashboard-dialog";
 import { DashboardCharts } from "./dashboard-charts";
 import { DistributionMap } from "./distribution-map";
-import { CodeScanner } from "./code-scanner";
+import { TransferQueue } from "./transfer-queue";
+import { RecommendationCards } from "./recommendation-cards";
 const dates = (value: string | null | undefined) =>
   value ? value.replace("T", " ").replace("Z", "") + " UTC" : "Não registrado";
 function initialView(role: Role, mode: string, view?: string): DashboardView {
@@ -69,11 +70,12 @@ export function OperationsPanel({
     [selected, setSelected] = useState<DetailRecord | null>(null),
     [confirmation, setConfirmation] = useState(""),
     [busy, setBusy] = useState(false),
-    [scan, setScan] = useState(""),
     [exporting, setExporting] = useState(false);
   const resolve = useRef<((value: boolean) => void) | null>(null);
+  const transferKeys = useRef<Record<string, string>>({});
   const view = (new URLSearchParams(query).get("dashboard") ||
     first) as DashboardView;
+  const recommendationPage = mode === "recomendacoes" && view === "estoque";
   useEffect(() => {
     const c = new AbortController();
     fetch("/api/operations?" + query, { signal: c.signal, cache: "no-store" })
@@ -425,7 +427,10 @@ export function OperationsPanel({
                 </label>
                 <label>
                   Urgência
-                  <select name="priority" defaultValue={report?.filters.priority}>
+                  <select
+                    name="priority"
+                    defaultValue={report?.filters.priority}
+                  >
                     <option value="">Todas</option>
                     <option>Urgente</option>
                     <option>Moderado</option>
@@ -453,50 +458,80 @@ export function OperationsPanel({
               Período: {report.methodology.period} · Escopo: {report.scope} ·
               Atualização: {dates(report.generatedAt)}
             </p>
-            <div className="ops-metrics dashboard-metrics">
-              {displayed.map((m) => (
-                <article className="ops-metric" key={m.id}>
-                  <button
-                    className="dashboard-metric-button"
-                    onClick={() => openMetric(m.id)}
-                    aria-label={"Abrir " + m.label}
-                  >
-                    <span>{m.label}</span>
-                    <strong>
-                      {m.breakdown.length
-                        ? m.breakdown
-                            .map(
-                              (b) =>
-                                `${b.quantity.toLocaleString("pt-BR")} ${b.unit}`,
-                            )
-                            .join(" · ")
-                        : m.value === null
-                          ? "Sem dados"
-                          : Number(m.value.toFixed(2)).toLocaleString("pt-BR")}
-                    </strong>
-                    <small>{m.unit}</small>
-                  </button>
-                  <details className="dashboard-definition">
-                    <summary aria-label={"Definição de " + m.label}>
-                      Definição
-                    </summary>
-                    <p role="tooltip">{m.definition}</p>
-                  </details>
-                  <small>
-                    {m.period}
-                    <br />
-                    {m.scope}
-                    <br />
-                    Atualizado: {dates(m.updatedAt)}
-                  </small>
-                </article>
-              ))}
-            </div>
+            <details open={!recommendationPage}>
+              <summary>Ver indicadores do período</summary>
+              <div className="ops-metrics dashboard-metrics">
+                {displayed.map((m) => (
+                  <article className="ops-metric" key={m.id}>
+                    <button
+                      className="dashboard-metric-button"
+                      onClick={() => openMetric(m.id)}
+                      aria-label={"Abrir " + m.label}
+                    >
+                      <span>{m.label}</span>
+                      <strong>
+                        {m.breakdown.length
+                          ? m.breakdown
+                              .map(
+                                (b) =>
+                                  `${b.quantity.toLocaleString("pt-BR")} ${b.unit}`,
+                              )
+                              .join(" · ")
+                          : m.value === null
+                            ? "Sem dados"
+                            : Number(m.value.toFixed(2)).toLocaleString(
+                                "pt-BR",
+                              )}
+                      </strong>
+                      <small>{m.unit}</small>
+                    </button>
+                    <details className="dashboard-definition">
+                      <summary aria-label={"Definição de " + m.label}>
+                        Definição
+                      </summary>
+                      <p role="tooltip">{m.definition}</p>
+                    </details>
+                    <small>
+                      {m.period}
+                      <br />
+                      {m.scope}
+                      <br />
+                      Atualizado: {dates(m.updatedAt)}
+                    </small>
+                  </article>
+                ))}
+              </div>
+            </details>
           </>
         )}
       </section>
       {report && !loading && (
         <>
+          {recommendationPage && (
+            <RecommendationCards
+              report={report}
+              role={role}
+              busy={busy}
+              onFilter={(decision) => update({ decision, decisionPage: "1" })}
+              onPage={(page) => update({ decisionPage: String(page) })}
+              onCritical={() => openMetric("critical")}
+              onBuy={(code, warehouse) =>
+                update({ dashboard: "compra", code, warehouse, page: "1" })
+              }
+              onTransfer={(t) =>
+                void act(
+                  {
+                    type: "transfer",
+                    ...t,
+                    requestKey: (transferKeys.current[
+                      `${t.code}:${t.from}:${t.to}:${t.quantity}`
+                    ] ||= crypto.randomUUID()),
+                  },
+                  `Solicitar ${t.quantity} unidades de ${t.code}, de ${t.from} para ${t.to}? Os saldos só mudam após saída e recebimento conferidos.`,
+                )
+              }
+            />
+          )}
           {["geral", "bloco", "estoque", "compra"].includes(view) && (
             <DashboardCharts report={report} />
           )}
@@ -559,173 +594,213 @@ export function OperationsPanel({
                   </p>
                 </div>
               </div>
-              <div
-                className="ops-scroll"
-                role="region"
-                aria-label="Estoque e previsão"
-                tabIndex={0}
-              >
-                <table>
-                  <caption>Valores exatos por unidade cadastrada</caption>
-                  <thead>
-                    <tr>
-                      {[
-                        "Item / local",
-                        "Físico",
-                        "Reservado",
-                        "Disponível",
-                        "Mínimo",
-                        "Movimentações",
-                        "Prazo / previsão",
-                        "Compra / transferência",
-                        "Preço e fonte",
-                        "Metodologia",
-                      ].map((h) => (
-                        <th key={h} scope="col">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.rows.map((r) => (
-                      <tr key={r.code + r.warehouse}>
-                        <td data-label="Item / local">
-                          <strong>
-                            {r.code} · {r.item}
-                          </strong>
-                          <p>
-                            {r.warehouse} · {r.location} · {r.unit}
-                          </p>
-                        </td>
-                        <td data-label="Físico">{r.physical}</td>
-                        <td data-label="Reservado">{r.reserved}</td>
-                        <td data-label="Disponível">{r.available}</td>
-                        <td data-label="Mínimo">
-                          {r.configuredMinimum}
-                          <small>
-                            Sugerido: {r.minimum} · alvo: {r.target}
-                          </small>
-                        </td>
-                        <td data-label="Movimentações">
-                          Entradas: {r.entries}
-                          <br />
-                          Retiradas: {r.withdrawals}
-                          <br />
-                          Devoluções: {r.returns}
-                        </td>
-                        <td data-label="Prazo / previsão">
-                          {r.leadDays} dias / {r.forecast} {r.unit}
-                        </td>
-                        <td data-label="Compra / transferência">
-                          {r.buy} / {r.transfer}
-                          <small>
-                            Custo interno:{" "}
-                            {r.cost.toLocaleString("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            })}
-                          </small>
-                        </td>
-                        <td data-label="Preço e fonte">
-                          {r.unitPrice === null
-                            ? "Indisponível"
-                            : r.unitPrice.toLocaleString("pt-BR", {
+              <details className="decision-table" open={!recommendationPage}>
+                <summary>Ver tabela detalhada de estoque e previsão</summary>
+                <div
+                  className="ops-scroll"
+                  role="region"
+                  aria-label="Estoque e previsão"
+                  tabIndex={0}
+                >
+                  <table>
+                    <caption>Valores exatos por unidade cadastrada</caption>
+                    <thead>
+                      <tr>
+                        {[
+                          "Item / local",
+                          "Físico",
+                          "Reservado",
+                          "Disponível",
+                          "Mínimo",
+                          "Movimentações",
+                          "Prazo / previsão",
+                          "Compra / transferência",
+                          "Preço e fonte",
+                          "Metodologia",
+                        ].map((h) => (
+                          <th key={h} scope="col">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.rows.map((r) => (
+                        <tr key={r.code + r.warehouse}>
+                          <td data-label="Item / local">
+                            <strong>
+                              {r.code} · {r.item}
+                            </strong>
+                            <p>
+                              {r.warehouse} · {r.location} · {r.unit}
+                            </p>
+                          </td>
+                          <td data-label="Físico">{r.physical}</td>
+                          <td data-label="Reservado">{r.reserved}</td>
+                          <td data-label="Disponível">{r.available}</td>
+                          <td data-label="Mínimo">
+                            {r.configuredMinimum}
+                            <small>
+                              Sugerido: {r.minimum} · alvo: {r.target}
+                            </small>
+                          </td>
+                          <td data-label="Movimentações">
+                            Entradas: {r.entries}
+                            <br />
+                            Retiradas: {r.withdrawals}
+                            <br />
+                            Devoluções: {r.returns}
+                          </td>
+                          <td data-label="Prazo / previsão">
+                            {r.leadDays} dias / {r.forecast} {r.unit}
+                          </td>
+                          <td data-label="Compra / transferência">
+                            Comprar: {r.buy} {r.unit}
+                            <br />
+                            Transferir: {r.transfer} {r.unit}
+                            <small>
+                              Custo interno:{" "}
+                              {r.cost.toLocaleString("pt-BR", {
                                 style: "currency",
                                 currency: "BRL",
                               })}
-                          <small>
-                            {r.priceLabel} · Data: {dates(r.priceDate)}
-                          </small>
-                        </td>
-                        <td data-label="Metodologia">
-                          <span className="dashboard-badge">
-                            {r.analysis.confidence}
-                          </span>
-                          <details>
-                            <summary>Explicar cálculo</summary>
-                            <p>
-                              {r.analysis.method} · {r.analysis.days} dias · MAE{" "}
-                              {r.analysis.mae?.toFixed(2) ?? "não validado"} ·
-                              WAPE{" "}
-                              {r.analysis.wape === null
-                                ? "não validado"
-                                : (r.analysis.wape * 100).toFixed(1) + "%"}
-                            </p>
-                            <p>{r.analysis.reason}</p>
-                            <p>
-                              Compra = max(0, {r.target} − {r.available} −{" "}
-                              {r.incoming} − {r.transfer}) = {r.buy}.
-                            </p>
-                          </details>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {!report.rows.length && (
-                <p className="dashboard-empty">
-                  Nenhum item/local corresponde aos filtros.
-                </p>
-              )}
-              {pagination(
-                report.rowTotal,
-                Math.max(
-                  1,
-                  Math.ceil(report.rowTotal / report.filters.pageSize),
-                ),
-              )}
-            </section>
-          )}
-          {["estoque", "requisicoes"].includes(view) && can(role, "stock") && (
-            <section className="panel ops-panel">
-              <div className="panel-head">
-                <div>
-                  <h2>Distribuição e rotas</h2>
-                  <p>Consulta e sugestões não movimentam estoque.</p>
+                            </small>
+                          </td>
+                          <td data-label="Preço e fonte">
+                            {r.unitPrice === null
+                              ? "Indisponível"
+                              : r.unitPrice.toLocaleString("pt-BR", {
+                                  style: "currency",
+                                  currency: "BRL",
+                                })}
+                            <small>
+                              {r.priceLabel} · Data: {dates(r.priceDate)}
+                            </small>
+                          </td>
+                          <td data-label="Metodologia">
+                            <span className="dashboard-badge">
+                              {r.analysis.confidence}
+                            </span>
+                            <details>
+                              <summary>Explicar cálculo</summary>
+                              <p>
+                                {r.analysis.method} · {r.analysis.days} dias ·
+                                MAE{" "}
+                                {r.analysis.mae?.toFixed(2) ?? "não validado"} ·
+                                WAPE{" "}
+                                {r.analysis.wape === null
+                                  ? "não validado"
+                                  : (r.analysis.wape * 100).toFixed(1) + "%"}
+                              </p>
+                              <p>{r.analysis.reason}</p>
+                              <p>
+                                Compra = max(0, {r.target} − {r.available} −{" "}
+                                {r.incoming} − {r.transfer}) = {r.buy}.
+                              </p>
+                            </details>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-              <DistributionMap version={report.mapVersion} />
-              <CodeScanner onCode={setScan} />
-              <label>
-                Código conferido
-                <input value={scan} onChange={(e) => setScan(e.target.value)} />
-              </label>
-              {report.transfers.length ? (
-                report.transfers.map((t) => (
-                  <article
-                    className="ops-suggestion"
-                    key={t.code + t.from + t.to}
-                  >
-                    <p>
-                      <strong>
-                        {t.code} · {t.quantity} unidades
-                      </strong>
-                      <br />
-                      {t.from} → {t.to}
-                      <br />
-                      {t.reason}
-                    </p>
-                    <button
-                      className="button secondary"
-                      disabled={busy || !scan}
-                      onClick={() =>
-                        void act(
-                          { type: "transfer", ...t, qrCode: scan },
-                          `Transferir ${t.quantity} unidades de ${t.code}, de ${t.from} para ${t.to}? A operação altera os saldos e será auditada.`,
-                        )
-                      }
-                    >
-                      Confirmar transferência sugerida
-                    </button>
-                  </article>
-                ))
-              ) : (
-                <p>Não há excesso transferível para os alvos atuais.</p>
-              )}
+                {!report.rows.length && (
+                  <p className="dashboard-empty">
+                    Nenhum item/local corresponde aos filtros.
+                  </p>
+                )}
+                {pagination(
+                  report.rowTotal,
+                  Math.max(
+                    1,
+                    Math.ceil(report.rowTotal / report.filters.pageSize),
+                  ),
+                )}
+              </details>
             </section>
           )}
+          {!recommendationPage &&
+            ["estoque", "requisicoes"].includes(view) &&
+            can(role, "stock") && (
+              <section className="panel ops-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>Distribuição e rotas</h2>
+                    <p>Consulta e sugestões não movimentam estoque.</p>
+                  </div>
+                </div>
+                <DistributionMap version={report.mapVersion} />
+                <p>
+                  Solicite sem escanear. Código e quantidade serão conferidos na
+                  saída e no recebimento.
+                </p>
+                {report.transfers.length ? (
+                  report.transfers.map((t) => (
+                    <article
+                      className="ops-suggestion"
+                      key={t.code + t.from + t.to}
+                    >
+                      <p>
+                        <strong>
+                          {t.code} · {t.quantity} unidades
+                        </strong>
+                        <br />
+                        {t.from} → {t.to}
+                        <br />
+                        {t.reason}
+                        <br />
+                        Confiança: {t.confidence}. {t.benefit}
+                        <br />
+                        Período: {t.evidence.period.from} a{" "}
+                        {t.evidence.period.to}. Prazo: {t.evidence.leadDays}{" "}
+                        dias.
+                        <br />
+                        Origem: disponível {t.evidence.sourceAvailable},
+                        reservado {t.evidence.sourceReserved}, mínimo{" "}
+                        {t.evidence.sourceMinimum}, alvo{" "}
+                        {t.evidence.sourceTarget}
+                        .
+                        <br />
+                        Destino: disponível {t.evidence.destinationAvailable},
+                        reservado {t.evidence.destinationReserved}, alvo{" "}
+                        {t.evidence.destinationTarget}, previsão{" "}
+                        {t.evidence.forecast}, entradas {t.evidence.incoming},
+                        transferências pendentes {t.evidence.pendingIncoming}.
+                        <br />
+                        Consumo por bloco:{" "}
+                        {t.evidence.consumption
+                          ?.map((c) => `${c.block}: ${c.quantity}`)
+                          .join("; ") || "Sem baixas observadas"}
+                        .
+                        <br />
+                        {t.evidence.proximity}
+                      </p>
+                      <button
+                        className="button secondary"
+                        disabled={busy}
+                        onClick={() =>
+                          void act(
+                            {
+                              type: "transfer",
+                              ...t,
+                              requestKey: (transferKeys.current[
+                                `${t.code}:${t.from}:${t.to}:${t.quantity}`
+                              ] ||= crypto.randomUUID()),
+                            },
+                            `Solicitar ${t.quantity} unidades de ${t.code}, de ${t.from} para ${t.to}? Os saldos só mudam após saída e recebimento conferidos.`,
+                          )
+                        }
+                      >
+                        Solicitar transferência sugerida
+                      </button>
+                    </article>
+                  ))
+                ) : (
+                  <p>Não há excesso transferível para os alvos atuais.</p>
+                )}
+                <TransferQueue />
+              </section>
+            )}
           {view === "compra" && (
             <section className="panel ops-panel">
               <h2>Antes de comprar</h2>

@@ -129,6 +129,7 @@ test("reservas concorrentes, cancelamento, entrega, devolução, escopos e relat
       warehouse,
       {
         type: "transfer",
+        requestKey: crypto.randomUUID(),
         code,
         from: "Central",
         to: "Almoxarifado 1",

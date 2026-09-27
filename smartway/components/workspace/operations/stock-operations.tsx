@@ -1,10 +1,12 @@
 ﻿"use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { TransferQueue } from "./transfer-queue";
 import { useDemoStore } from "../demo-store";
 import { WAREHOUSES } from "@/lib/inventory";
 import { CodeScanner } from "./code-scanner";
 export function StockOperations() {
   const { stock, runAction } = useDemoStore();
+  const requestKey = useRef("");
   const [mode, setMode] = useState("stockEntry"),
     [code, setCode] = useState(""),
     [busy, setBusy] = useState(false),
@@ -16,7 +18,9 @@ export function StockOperations() {
     setBusy(true);
     setMessage("");
     try {
+      requestKey.current ||= crypto.randomUUID();
       await runAction({
+        requestKey: requestKey.current,
         type: mode,
         code: d.get("part"),
         warehouse: d.get("warehouse"),
@@ -30,6 +34,7 @@ export function StockOperations() {
         reference: d.get("reference"),
       });
       setMessage("Operação registrada no MySQL.");
+      requestKey.current = "";
       f.reset();
       setCode("");
     } catch (e) {
@@ -55,7 +60,9 @@ export function StockOperations() {
           <select value={mode} onChange={(e) => setMode(e.target.value)}>
             <option value="stockEntry">Entrada conferida</option>
             <option value="adjustStock">Ajustar saldo físico</option>
-            <option value="transfer">Transferir entre locais</option>
+            <option value="transfer">
+              Solicitar transferência entre locais
+            </option>
             <option value="confirmInbound">
               Registrar entrada futura confirmada
             </option>
@@ -137,6 +144,7 @@ export function StockOperations() {
         </button>
         {message && <p role="status">{message}</p>}
       </form>
+      <TransferQueue />
     </section>
   );
 }

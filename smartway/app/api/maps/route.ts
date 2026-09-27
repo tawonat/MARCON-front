@@ -6,6 +6,7 @@ import { ActionError, can, demand, integer, text } from "@/lib/permissions";
 import { graphProblems, planStops, type FacilityGraph } from "@/lib/routing";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
 import { imageObstacles, imageSuggestions } from "@/lib/map-image";
+import { deliveryHistory, planDelivery } from "@/lib/delivery-planning";
 export const runtime = "nodejs";
 const json = (body: object, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -16,6 +17,18 @@ export async function GET(request: NextRequest) {
     if (!can(user.role, "stock"))
       return json({ error: "Acesso ao mapa operacional restrito." }, 403);
     if (!databaseEnabled()) return json({ error: "Configure o MySQL." }, 503);
+    if (request.nextUrl.searchParams.has("delivery")) {
+      const page = integer(
+        Number(request.nextUrl.searchParams.get("page") ?? 1),
+      );
+      if (page > 10000) throw new ActionError("Página inválida.");
+      return json({
+        history: await deliveryHistory(
+          integer(Number(request.nextUrl.searchParams.get("delivery"))),
+          page,
+        ),
+      });
+    }
     const id = request.nextUrl.searchParams.get("image");
     if (id) {
       if (!Number.isSafeInteger(Number(id)) || Number(id) < 1)
@@ -43,7 +56,8 @@ export async function GET(request: NextRequest) {
       "SELECT id,name FROM blocks",
     );
     return json({ maps, warehouses, blocks });
-  } catch {
+  } catch (e) {
+    if (e instanceof ActionError) return json({ error: e.message }, e.status);
     return json(
       {
         error:
@@ -113,6 +127,8 @@ export async function POST(request: NextRequest) {
           );
       }
     } else a = JSON.parse(raw.toString("utf8"));
+    if (["planDelivery", "departDelivery"].includes(String(a.action)))
+      return json(await planDelivery(user, a));
     if (a.action === "test") {
       demand(user, "stock");
       let graph: FacilityGraph;

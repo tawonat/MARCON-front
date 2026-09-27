@@ -464,7 +464,65 @@ export async function dashboardReport(
     scope,
     updatedAt: base.generatedAt,
   }));
+  const decision = q.get("decision") || "action";
+  if (
+    ![
+      "all",
+      "action",
+      "transfer",
+      "buy",
+      "insufficient",
+      "analysis",
+      "history",
+    ].includes(decision)
+  )
+    throw new ActionError("Filtro de sugestões inválido.");
+  const decisionPage = Number(q.get("decisionPage") || 1);
+  if (
+    !Number.isSafeInteger(decisionPage) ||
+    decisionPage < 1 ||
+    decisionPage > 100000
+  )
+    throw new ActionError("Página de sugestões inválida.");
+  const proposals = rows.flatMap((row) => {
+    const transfers = base.transfers.filter(
+      (t) => t.code === row.code && t.to === row.warehouse,
+    );
+    const cards: {
+      action: "transfer" | "buy" | "observe";
+      row: typeof row;
+      transfer: (typeof base.transfers)[number] | null;
+    }[] = transfers.map((transfer) => ({ action: "transfer", row, transfer }));
+    if (row.buy > 0) cards.push({ action: "buy", row, transfer: null });
+    if (!cards.length) cards.push({ action: "observe", row, transfer: null });
+    return cards;
+  });
+  const decisionCards = proposals.filter(
+    (c) =>
+      decision === "all" ||
+      (decision === "action" && c.action !== "observe") ||
+      decision === c.action ||
+      (decision === "insufficient" &&
+        (c.row.analysis.confidence === "Dados insuficientes" ||
+          !c.row.priceDate)),
+  );
   return {
+    decisions: {
+      filter: decision,
+      page: decisionPage,
+      total: decisionCards.length,
+      cards: decisionCards.slice(
+        (decisionPage - 1) * f.pageSize,
+        decisionPage * f.pageSize,
+      ),
+      transfers: proposals.filter((c) => c.action === "transfer").length,
+      criticalItems: new Set(
+        rows
+          .filter((r) => r.available < r.configuredMinimum)
+          .map((r) => r.code),
+      ).size,
+      awaitingReview: proposals.filter((c) => c.action !== "observe").length,
+    },
     title: dashboardTitles[f.view],
     view: f.view,
     filters: f,
@@ -560,7 +618,7 @@ export async function dashboardReport(
         "Compra = max(0, alvo - disponível - entradas confirmadas - transferência possível).",
         "Tempo médio = média de (entrega - criação) em horas, somente horários válidos.",
         "Preço = estimativa interna; data do evento de cadastro/preço, quando registrada.",
-        "Previsão atual: até 180 dias; média diária, prazo, variabilidade e criticidade; validação temporal em 28 dias quando há histórico.",
+        "Previsão: dias observáveis do período selecionado até hoje; média diária, prazo, variabilidade e criticidade; validação temporal em 28 dias quando há histórico.",
         "Sem prazo de entrega cadastrado: fila ordenada por urgência e antiguidade; não inventa SLA.",
         "Sem conversão entre unidades: consulte séries separadas por unidade.",
         "Uma requisição representa uma linha de item; batch_id identifica o carrinho.",

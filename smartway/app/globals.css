@@ -11,6 +11,32 @@
   --subtle: #526177;
   --canvas: #f6f8fc;
 }
+.decision-totals { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 16px 0; }
+.decision-totals button { display: grid; gap: 8px; text-align: left; border: 1px solid var(--line); border-radius: 16px; padding: 18px; background: var(--canvas); color: var(--ink); cursor: pointer; }
+.decision-totals strong { color: var(--blue); font-size: 2rem; }
+.decision-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin: 20px 0; }
+.decision-card { min-width: 0; padding: clamp(16px, 3vw, 24px); border: 1px solid var(--line); border-radius: 18px; background: var(--white); overflow-wrap: anywhere; }
+.decision-card h3 { margin: 12px 0 6px; }
+.decision-route, .decision-balance { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.decision-route { color: var(--blue); font-weight: 600; }
+.decision-arrow { display: inline-block; color: var(--blue); font-size: 1.25rem; }
+.decision-balance { background: var(--canvas); border-radius: 12px; padding: 14px; }
+.decision-balance small { flex-basis: 100%; color: var(--subtle); }
+.decision-confidence { border-left: 3px solid var(--blue); padding-left: 12px; }
+.decision-calculation { border-top: 1px solid var(--line); margin-top: 16px; padding: 14px 0; }
+.decision-calculation summary, .decision-table > summary { cursor: pointer; color: var(--blue); padding: 10px 0; min-height: 44px; }
+.decision-calculation dl { display: grid; gap: 6px; }
+.decision-calculation dt { font-weight: 600; margin-top: 10px; }
+.decision-calculation dd { margin: 0; color: var(--subtle); }
+.decision-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.decision-card .button { white-space: normal; max-width: 100%; }
+.decision-panel .head-actions { flex-wrap: wrap; }
+.decision-totals button:focus-visible, .decision-calculation summary:focus-visible { outline: 3px solid var(--bright); outline-offset: 3px; }
+.decision-card:has(.decision-calculation[open]) .decision-arrow, .decision-card:has(.decision-calculation[open]) .decision-balance strong { animation: decision-reveal 220ms ease-out; }
+@keyframes decision-reveal { from { opacity: .45; transform: translateX(-5px); } to { opacity: 1; transform: translateX(0); } }
+@media (min-width: 640px) { .decision-totals { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .decision-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .decision-card:has(.decision-calculation[open]) .decision-arrow, .decision-card:has(.decision-calculation[open]) .decision-balance strong { animation: none; } }
 * {
   box-sizing: border-box;
 }

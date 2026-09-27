@@ -238,15 +238,18 @@ export function shortestPath(
       if (!next || !todo.has(next)) continue;
       const a = g.nodes.find((n) => n.id === current)!,
         b = g.nodes.find((n) => n.id === next)!;
-      // Todos os pesos são segundos: distância escalada / velocidade de caminhada.
+      // New calibrated maps use metres; uncalibrated maps use pixels. Legacy maps retain time weights.
       const cost =
         costs.get(current)! +
-        (g.scaleCalibrated === false
-          ? Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height)
-          : (edge.seconds ??
-            (Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height) *
-              g.metersPerPixel) /
-              1.2));
+        (g.scaleCalibrated === true
+          ? Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height) *
+            g.metersPerPixel
+          : g.scaleCalibrated === false
+            ? Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height)
+            : (edge.seconds ??
+              (Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height) *
+                g.metersPerPixel) /
+                1.2));
       if (cost < costs.get(next)!) {
         costs.set(next, cost);
         previous.set(next, current);

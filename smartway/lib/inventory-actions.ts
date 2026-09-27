@@ -8,15 +8,18 @@ import {
   stock,
   scan,
   capacity,
-  available,
   audit,
   movement,
 } from "./stock-ledger";
+import { transferAction } from "./transfer-actions";
 import { requestActions, executeRequestAction } from "./request-actions";
 import type { ResultSetHeader } from "mysql2";
 export const inventoryActions = new Set([
   ...requestActions,
   "transfer",
+  "dispatchTransfer",
+  "receiveTransfer",
+  "cancelTransfer",
   "savePart",
   "deletePart",
   "stockEntry",
@@ -42,6 +45,15 @@ export async function executeInventoryAction(
     if (requestActions.has(String(a.type)))
       return executeRequestAction(c, user, actor, a);
     demand(user, "stock");
+    if (
+      [
+        "transfer",
+        "dispatchTransfer",
+        "receiveTransfer",
+        "cancelTransfer",
+      ].includes(String(a.type))
+    )
+      return transferAction(c, actorId, a);
     if (a.type === "savePart") {
       const d = a.part as Record<string, unknown>;
       if (!d || typeof d !== "object")
@@ -332,6 +344,11 @@ export async function executeInventoryAction(
       );
       if (
         pending ||
+        (await first(
+          c,
+          "SELECT id FROM stock_transfers WHERE part_id=? AND status IN ('Solicitada','Em trânsito') LIMIT 1",
+          [p.id],
+        )) ||
         (await stock(c, Number(p.id))).some((b) => Number(b.quantity) > 0)
       )
         throw new ActionError(
@@ -365,71 +382,6 @@ export async function executeInventoryAction(
       "INSERT IGNORE INTO inventory(part_id,warehouse_id) VALUES(?,?)",
       [p.id, w.id],
     );
-    if (a.type === "transfer") {
-      const target = await place(c, a.to),
-        q = integer(a.quantity),
-        note = reason(a.reason);
-      scan(p, a.qrCode);
-      if (w.id === target.id)
-        throw new ActionError("Escolha locais diferentes.");
-      await c.execute(
-        "INSERT IGNORE INTO inventory(part_id,warehouse_id) VALUES(?,?)",
-        [p.id, target.id],
-      );
-      const balances = await stock(c, Number(p.id)),
-        source = balances.find((b) => Number(b.warehouse_id) === Number(w.id))!,
-        dest = balances.find(
-          (b) => Number(b.warehouse_id) === Number(target.id),
-        )!;
-      if (available(source) < q)
-        throw new ActionError(
-          "A transferência consumiria saldo reservado.",
-          409,
-        );
-      capacity(dest, Number(dest.quantity) + q);
-      await c.execute(
-        "UPDATE inventory SET quantity=quantity-? WHERE part_id=? AND warehouse_id=?",
-        [q, p.id, w.id],
-      );
-      await c.execute(
-        "UPDATE inventory SET quantity=quantity+? WHERE part_id=? AND warehouse_id=?",
-        [q, p.id, target.id],
-      );
-      const [r] = await c.execute<ResultSetHeader>(
-        "INSERT INTO stock_transfers(part_id,source_warehouse_id,destination_warehouse_id,quantity,qr_code_scanned,performed_by) VALUES(?,?,?,?,?,?)",
-        [p.id, w.id, target.id, q, text(a.qrCode, 128), actorId],
-      );
-      await movement(
-        c,
-        actorId,
-        Number(p.id),
-        Number(w.id),
-        "transferencia_saida",
-        q,
-        note,
-        null,
-        null,
-        null,
-        r.insertId,
-      );
-      await movement(
-        c,
-        actorId,
-        Number(p.id),
-        Number(target.id),
-        "transferencia_entrada",
-        q,
-        note,
-        null,
-        null,
-        null,
-        r.insertId,
-      );
-      await audit(c, actorId, "transfer", r.insertId, "confirm", {
-        reason: note,
-      });
-      return { id: r.insertId };
-    }
     if (a.type === "stockEntry" || a.type === "adjustStock") {
       const b = (await stock(c, Number(p.id))).find(
           (b) => Number(b.warehouse_id) === Number(w.id),
