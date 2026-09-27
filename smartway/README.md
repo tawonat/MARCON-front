@@ -28,12 +28,12 @@ Nunca publique `.env.local`. `/health` verifica a conexão.
 O seed usa `INSERT IGNORE`: não redefine senhas, saldos ou usuários existentes.
 Faça backup antes de migrar bancos existentes: DDL MySQL não tem rollback integral.
 
-| Matrícula | E-mail | Perfil | Bloco no seed MySQL |
-| --- | --- | --- | --- |
-| 1001 | ana@marcon.demo | Funcionário | A |
-| 1002 | carlos@marcon.demo | Líder | A |
-| 1003 | mariana@marcon.demo | Almoxarifado | — |
-| 1004 | rafael@marcon.demo | Administrador | — |
+| Matrícula | E-mail              | Perfil        | Bloco no seed MySQL |
+| --------- | ------------------- | ------------- | ------------------- |
+| 1001      | ana@marcon.demo     | Funcionário   | A                   |
+| 1002      | carlos@marcon.demo  | Líder         | A                   |
+| 1003      | mariana@marcon.demo | Almoxarifado  | —                   |
+| 1004      | rafael@marcon.demo  | Administrador | —                   |
 
 No MySQL, a senha inicial das quatro contas é `SEED_PASSWORD` (no ambiente local
 de exemplo, `Marcon@12345`).
@@ -104,3 +104,38 @@ e deepfakes podem burlá-la. Não equivale à proteção de uma passkey de hardw
 Testes: `npx playwright test tests/face-policy.spec.ts tests/face-model.spec.ts`;
 com o banco de teste configurado, `npx playwright test -c playwright.mysql.config.ts face`.
 As fixtures de imagem em `tests/fixtures` são sintéticas, da coleção MIT do Human.
+
+## Estoque, mapas e planejamento
+
+Execute `npm run db:migrate` (migração aditiva 002, preserva dados e papéis).
+Pedidos pendentes não reservam saldo. Aprovação reserva por local; entrega exige
+código e quantidade; cancelamento confirmado libera reserva. Devoluções aguardam
+conferência. Pedidos aprovados legados com reserva incompleta devem ser revalidados.
+Novas operações usam UTC; horários antigos não são convertidos automaticamente.
+
+Teste com funcionário → líder/admin → almoxarife → confirmação do requisitor.
+No estoque, cadastre unidade/categoria, corredor/prateleira, mínimo e capacidade.
+No Admin → Planta e rotas, envie PNG/JPEG/WebP até 5 MB, informe metros/pixel,
+posicione pontos, trace paredes e caminhos, teste, confira fisicamente e publique.
+A imagem não detecta paredes automaticamente. Dijkstra + vizinho mais próximo/2-opt
+usam somente ligações cadastradas; sem mapa conectado, a operação é manual.
+
+Os relatórios filtram baixas efetivas por período e escopo; saldos são atuais.
+A previsão usa até 180 dias, média diária, prazo, variabilidade e criticidade;
+com 90 dias/15 dias ativos compara média móvel e suavização; backtest de 28 dias
+exige 60 dias/7 dias ativos. MAE/WAPE são erro histórico, não garantia futura.
+Capacidade é em unidades por item/local; não modela volume compartilhado.
+Excesso é sugerido antes de compra e requer conferência. Preços são estimativas
+internas, sem cotação de mercado, frete ou impostos. PDF e XLSX saem do mesmo relatório.
+
+Integração corporativa: a marca pública é [TOTVS](https://www.totvs.com/totvs-ipaas/),
+mas não há confirmação do produto/versão usado pela MARCON, endpoint ou credenciais.
+`lib/integrations/corporate.ts` define eventos entrada/saída/transferência/devolução/ajuste,
+com chave idempotente, SKU, unidade, quantidade, locais, pedido, ator, data e motivo.
+O adaptador está desativado; MySQL é a única fonte oficial de saldo. Antes de ativar,
+mapear IDs e definir conciliação/idempotência com o ERP. Nenhum e-mail é enviado:
+o projeto não contém configuração de provedor. Não há cotação externa ativa.
+
+Verificações: `npm run lint`, `npx tsc --noEmit`, `npm run build`, `npm run test:e2e`;
+MySQL: `npx playwright test -c playwright.mysql.config.ts` com `DB_NAME` terminado
+em `_test`, seed e `SEED_PASSWORD`; `PLAYWRIGHT_PRODUCTION=1` usa o build na porta 3101.

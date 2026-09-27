@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import { InspectReturn } from "../operations/inspect-return";
+import { WAREHOUSES } from "@/lib/inventory";
 import { useState } from "react";
 import {
   ClipboardList,
@@ -20,7 +22,17 @@ export function ReturnsScreen({
 }: {
   setMessage: React.Dispatch<React.SetStateAction<string>>;
 }) {
-  const { stock, setStock, setBalances, returns, setReturns, setMovements, persistent, runAction } = useDemoStore();
+  const {
+    requests,
+    stock,
+    setStock,
+    setBalances,
+    returns,
+    setReturns,
+    setMovements,
+    persistent,
+    runAction,
+  } = useDemoStore();
   const [partCode, setPartCode] = useState(stock[0]?.code ?? "");
   const [boxes, setBoxes] = useState("");
   const [looseUnits, setLooseUnits] = useState("");
@@ -28,6 +40,8 @@ export function ReturnsScreen({
   const [returnedBy, setReturnedBy] = useState("");
   const [condition, setCondition] = useState<ReturnRecord["condition"]>("Apto");
   const [note, setNote] = useState("");
+  const [requestId, setRequestId] = useState("");
+  const [warehouse, setWarehouse] = useState("Central");
   const [query, setQuery] = useState("");
   const [conditionFilter, setConditionFilter] = useState("Todas");
 
@@ -52,7 +66,11 @@ export function ReturnsScreen({
   });
   const returnedUnits = returns.reduce((sum, item) => sum + item.quantity, 0);
   const restockedUnits = returns
-    .filter((item) => item.condition === "Apto")
+    .filter(
+      (item) =>
+        item.condition === "Apto" &&
+        (!persistent || item.inspectionStatus === "Conferida"),
+    )
     .reduce((sum, item) => sum + item.quantity, 0);
 
   async function registerReturn(event: React.FormEvent<HTMLFormElement>) {
@@ -74,11 +92,28 @@ export function ReturnsScreen({
     }
     if (persistent) {
       try {
-        await runAction({ type: "registerReturn", code: part.code, block: fromBlock, quantity, condition, returnedBy: returnedBy.trim(), note: note.trim() });
-        setBoxes(""); setLooseUnits(""); setReturnedBy(""); setNote("");
-        setMessage(condition === "Apto" ? "Devolução registrada e estoque atualizado." : "Devolução danificada registrada sem entrada no estoque.");
+        await runAction({
+          type: "registerReturn",
+          code: part.code,
+          block: fromBlock,
+          quantity,
+          condition,
+          requestId: Number(requestId) || undefined,
+          warehouse,
+          returnedBy: returnedBy.trim(),
+          note: note.trim(),
+        });
+        setBoxes("");
+        setLooseUnits("");
+        setReturnedBy("");
+        setNote("");
+        setMessage("Devolução pendente de conferência; saldo preservado.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível registrar a devolução.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível registrar a devolução.",
+        );
       }
       return;
     }
@@ -97,9 +132,17 @@ export function ReturnsScreen({
     };
     setReturns((items) => [record, ...items]);
     if (condition === "Apto") {
-      setBalances((items) => items.some((item) => item.partCode === part.code && item.warehouse === "Central")
-        ? items.map((item) => item.partCode === part.code && item.warehouse === "Central" ? { ...item, quantity: item.quantity + quantity } : item)
-        : [...items, { partCode: part.code, warehouse: "Central", quantity }]);
+      setBalances((items) =>
+        items.some(
+          (item) => item.partCode === part.code && item.warehouse === "Central",
+        )
+          ? items.map((item) =>
+              item.partCode === part.code && item.warehouse === "Central"
+                ? { ...item, quantity: item.quantity + quantity }
+                : item,
+            )
+          : [...items, { partCode: part.code, warehouse: "Central", quantity }],
+      );
       setStock((items) =>
         items.map((item) =>
           item.code === part.code
@@ -146,7 +189,9 @@ export function ReturnsScreen({
           </span>
           <span>Devoluções</span>
           <strong>{returns.length}</strong>
-          <small>Registros desta sessão</small>
+          <small>
+            {persistent ? "Registros do MySQL" : "Registros desta sessão"}
+          </small>
         </div>
         <div className="stat">
           <span className="stat-icon green">
@@ -160,7 +205,7 @@ export function ReturnsScreen({
           <span className="stat-icon coral">
             <TriangleAlert size={20} aria-hidden="true" />
           </span>
-          <span>Unidades danificadas</span>
+          <span>Sem reposição ao estoque</span>
           <strong>{returnedUnits - restockedUnits}</strong>
           <small>Registradas sem alterar o saldo</small>
         </div>
@@ -176,6 +221,47 @@ export function ReturnsScreen({
           </div>
         </div>
         <div className="filter-grid">
+          {persistent && (
+            <>
+              <label>
+                Pedido entregue
+                <select
+                  value={requestId}
+                  onChange={(e) => {
+                    setRequestId(e.target.value);
+                    const r = requests.find(
+                      (r) => r.id === Number(e.target.value),
+                    );
+                    if (r) {
+                      setPartCode(r.code ?? "");
+                      setFromBlock(r.block);
+                      setReturnedBy(r.person);
+                    }
+                  }}
+                >
+                  <option value="">Devolução manual / legado</option>
+                  {requests
+                    .filter((r) => r.status === "Entregue")
+                    .map((r) => (
+                      <option key={r.id} value={r.id}>
+                        #{r.id} {r.code} - {r.person}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Destino
+                <select
+                  value={warehouse}
+                  onChange={(e) => setWarehouse(e.target.value)}
+                >
+                  {WAREHOUSES.map((w) => (
+                    <option key={w}>{w}</option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
           <label>
             Peça / ID
             <select
@@ -255,6 +341,8 @@ export function ReturnsScreen({
           <label className="return-note">
             Observação
             <input
+              required={persistent}
+              minLength={persistent ? 3 : undefined}
               value={note}
               onChange={(event) => setNote(event.target.value)}
               maxLength={180}
@@ -282,6 +370,19 @@ export function ReturnsScreen({
           </button>
         </div>
       </form>
+      {persistent && (
+        <section className="panel ops-panel">
+          <h2>Conferir devoluções pendentes</h2>
+          {returns
+            .filter((r) => r.inspectionStatus === "Pendente")
+            .map((r) => (
+              <InspectReturn key={r.id} record={r} />
+            ))}
+          {!returns.some((r) => r.inspectionStatus === "Pendente") && (
+            <p>Nenhuma devolução aguardando conferência.</p>
+          )}
+        </section>
+      )}
       <section className="panel">
         <div className="panel-head">
           <div>

@@ -1,5 +1,6 @@
 export type Role = "admin" | "lider" | "almoxarifado" | "funcionario";
 export type Page =
+  | "mapa"
   | "dashboard"
   | "requisicoes"
   | "funcionarios"
@@ -18,6 +19,7 @@ export const roleLanding: Record<Role, string> = {
 };
 export const pagePaths: Record<Role, Partial<Record<Page, string>>> = {
   admin: {
+    mapa: "/admin/map",
     dashboard: "/admin/dashboard",
     requisicoes: "/admin/all-requests",
     funcionarios: "/admin/create",

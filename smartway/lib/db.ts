@@ -8,7 +8,8 @@ export function databaseEnabled() {
 }
 
 export function getPool(): Pool {
-  return state.marconPool ??= mysql.createPool({
+  if (state.marconPool) return state.marconPool;
+  state.marconPool = mysql.createPool({
     ...databaseConfig(),
     connectionLimit: 10,
     decimalNumbers: true,
@@ -17,9 +18,16 @@ export function getPool(): Pool {
     supportBigNumbers: true,
     bigNumberStrings: false,
   });
+  // Alinha DEFAULT CURRENT_TIMESTAMP às datas UTC das transições e relatórios.
+  state.marconPool.on("connection", (connection) => {
+    connection.query("SET time_zone = '+00:00'");
+  });
+  return state.marconPool;
 }
 
-export async function transaction<T>(work: (connection: PoolConnection) => Promise<T>): Promise<T> {
+export async function transaction<T>(
+  work: (connection: PoolConnection) => Promise<T>,
+): Promise<T> {
   const connection = await getPool().getConnection();
   try {
     await connection.beginTransaction();

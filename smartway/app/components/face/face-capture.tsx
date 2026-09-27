@@ -45,12 +45,14 @@ export function FaceCapture({
   purpose,
   identity,
   password,
+  adminTarget,
   onDone,
   onCancel,
 }: {
   purpose: "register" | "login";
   identity?: string;
   password?: string;
+  adminTarget?: string;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -143,6 +145,7 @@ export function FaceCapture({
           purpose,
           identity,
           password,
+          adminTarget,
           consent: purpose === "register" ? FACE_CONSENT : undefined,
         },
         signal,

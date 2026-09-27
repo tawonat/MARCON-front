@@ -134,8 +134,15 @@ export async function POST(request: NextRequest) {
       const user = managing ? await currentUser() : null;
       if (managing && !user)
         return fail("Faça login para alterar o cadastro facial.", 401);
+      const adminTarget =
+        registering &&
+        user?.role === "admin" &&
+        typeof body.adminTarget === "string"
+          ? body.adminTarget.trim()
+          : "";
       const identity =
-        user?.id ??
+        adminTarget ||
+        user?.id ||
         (typeof body.identity === "string"
           ? body.identity.trim().toLowerCase()
           : "");
@@ -159,6 +166,7 @@ export async function POST(request: NextRequest) {
         );
       if (
         managing &&
+        !adminTarget &&
         (typeof body.password !== "string" ||
           body.password.length > 1024 ||
           !verifyPassword(body.password, account.password_hash))
@@ -288,7 +296,8 @@ export async function POST(request: NextRequest) {
           !challenge.session_hash?.equals(
             digest(request.cookies.get(cookieName)?.value ?? ""),
           ) ||
-          sessionUser?.id !== user.employee_no
+          (sessionUser?.id !== user.employee_no &&
+            sessionUser?.role !== "admin")
         )
           return fail("Sessão expirada. Entre novamente.", 401);
         await c.execute(

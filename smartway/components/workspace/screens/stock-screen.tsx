@@ -10,6 +10,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
+import { StockOperations } from "../operations/stock-operations";
 import { heading, badge } from "../ui";
 import { useDemoStore } from "../demo-store";
 import type { Part } from "@/lib/demo-data";
@@ -26,7 +27,16 @@ export function StockScreen({
   routePart?: string;
   setMessage: React.Dispatch<React.SetStateAction<string>>;
 }) {
-  const { stock, setStock, balances, setBalances, requests, setMovements, persistent, runAction } = useDemoStore();
+  const {
+    stock,
+    setStock,
+    balances,
+    setBalances,
+    requests,
+    setMovements,
+    persistent,
+    runAction,
+  } = useDemoStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [query, setQuery] = useState("");
@@ -35,15 +45,39 @@ export function StockScreen({
   const [sort, setSort] = useState("name");
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const requested = new URLSearchParams(window.location.search).get("warehouse");
-      if (requested && WAREHOUSES.includes(requested as Warehouse)) setWarehouse(requested as Warehouse);
+      const requested = new URLSearchParams(window.location.search).get(
+        "warehouse",
+      );
+      if (requested && WAREHOUSES.includes(requested as Warehouse))
+        setWarehouse(requested as Warehouse);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [routePart]);
 
   const visibleStock = useMemo(
     () =>
-      stock.map((item) => ({ ...item, quantity: balanceOf(balances, item.code, warehouse), minimum: Math.max(2, Math.ceil(item.minimum / (warehouse === "Central" ? 4 : 8))), warehouse }))
+      stock
+        .map((item) => ({
+          ...item,
+          quantity: balanceOf(balances, item.code, warehouse),
+          minimum:
+            balances.find(
+              (b) => b.partCode === item.code && b.warehouse === warehouse,
+            )?.minimum ??
+            Math.max(
+              2,
+              Math.ceil(item.minimum / (warehouse === "Central" ? 4 : 8)),
+            ),
+          reserved:
+            balances.find(
+              (b) => b.partCode === item.code && b.warehouse === warehouse,
+            )?.reserved ?? 0,
+          available:
+            balances.find(
+              (b) => b.partCode === item.code && b.warehouse === warehouse,
+            )?.available ?? balanceOf(balances, item.code, warehouse),
+          warehouse,
+        }))
         .filter((item) => {
           const routeMatch =
             !routePart ||
@@ -64,7 +98,7 @@ export function StockScreen({
             routeMatch &&
             textMatch &&
             (level === "Todos" ||
-              (level === "Crítico") === item.quantity < item.minimum)
+              (level === "Crítico") === item.available < item.minimum)
           );
         })
         .sort((a, b) =>
@@ -116,15 +150,19 @@ export function StockScreen({
       );
       return;
     }
-    const image = photo?.size && !persistent ? URL.createObjectURL(photo) : editing?.image;
-    const oldBalance = editing ? balanceOf(balances, editing.code, warehouse) : 0;
+    const image =
+      photo?.size && !persistent ? URL.createObjectURL(photo) : editing?.image;
+    const oldBalance = editing
+      ? balanceOf(balances, editing.code, warehouse)
+      : 0;
     const change = quantity - oldBalance;
     const part: Part = {
       id: editing?.id ?? Math.max(0, ...stock.map((item) => item.id)) + 1,
       name,
       code,
       qrCode,
-      quantity: (stock.find((item) => item.id === editing?.id)?.quantity ?? 0) + change,
+      quantity:
+        (stock.find((item) => item.id === editing?.id)?.quantity ?? 0) + change,
       packSize,
       minimum,
       warehouse,
@@ -137,18 +175,45 @@ export function StockScreen({
     };
     if (persistent) {
       try {
-        if (photo?.size && photo.size > 1_000_000) throw new Error("A foto deve ter até 1 MB.");
-        const imageData = photo?.size ? await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error("Não foi possível ler a foto."));
-          reader.readAsDataURL(photo);
-        }) : editing?.image;
-        await runAction({ type: "savePart", part: { ...part, id: editing?.id ?? null, image: imageData }, warehouse, localQuantity: quantity });
-        setEditing(null); setFormOpen(false);
+        if (photo?.size && photo.size > 1_000_000)
+          throw new Error("A foto deve ter até 1 MB.");
+        const imageData = photo?.size
+          ? await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = () =>
+                reject(new Error("Não foi possível ler a foto."));
+              reader.readAsDataURL(photo);
+            })
+          : editing?.image;
+        await runAction({
+          type: "savePart",
+          part: {
+            ...part,
+            id: editing?.id ?? null,
+            image: imageData,
+            unit: data.get("unit"),
+            category: data.get("category"),
+            criticality: Number(data.get("criticality") || 1),
+            aisle: data.get("aisle"),
+            shelf: data.get("shelf"),
+            capacity: data.get("capacity"),
+            localMinimum: Number(data.get("localMinimum") || 0),
+            mapNodeId: data.get("mapNodeId"),
+          },
+          warehouse,
+          localQuantity: quantity,
+          reason: data.get("reason"),
+        });
+        setEditing(null);
+        setFormOpen(false);
         setMessage(editing ? "Peça atualizada." : "Peça cadastrada.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível salvar a peça.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível salvar a peça.",
+        );
       }
       return;
     }
@@ -158,8 +223,18 @@ export function StockScreen({
         : [...items, part],
     );
     setBalances((items) => {
-      const rest = items.filter((item) => !(item.partCode === editing?.code && item.warehouse === warehouse));
-      const renamed = editing && editing.code !== code ? rest.map((item) => item.partCode === editing.code ? { ...item, partCode: code } : item) : rest;
+      const rest = items.filter(
+        (item) =>
+          !(item.partCode === editing?.code && item.warehouse === warehouse),
+      );
+      const renamed =
+        editing && editing.code !== code
+          ? rest.map((item) =>
+              item.partCode === editing.code
+                ? { ...item, partCode: code }
+                : item,
+            )
+          : rest;
       return [...renamed, { partCode: code, warehouse, quantity }];
     });
     if (change !== 0)
@@ -193,14 +268,24 @@ export function StockScreen({
       );
       return;
     }
-    if (!window.confirm((persistent ? "Desativar " : "Excluir ") + part.name + (persistent ? " do catálogo?" : " do estoque desta sessão?")))
+    if (
+      !window.confirm(
+        (persistent ? "Desativar " : "Excluir ") +
+          part.name +
+          (persistent ? " do catálogo?" : " do estoque desta sessão?"),
+      )
+    )
       return;
     if (persistent) {
       try {
         await runAction({ type: "deletePart", id: part.id });
         setMessage("Peça desativada.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível desativar a peça.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível desativar a peça.",
+        );
       }
       return;
     }
@@ -227,12 +312,35 @@ export function StockScreen({
           <Plus size={17} aria-hidden="true" /> Nova peça
         </button>
       </div>
-      <div className="warehouse-tabs" role="tablist" aria-label="Estoque por almoxarifado">
+      {persistent && <StockOperations />}
+      <div
+        className="warehouse-tabs"
+        role="tablist"
+        aria-label="Estoque por almoxarifado"
+      >
         {WAREHOUSES.map((item) => (
-          <button key={item} type="button" role="tab" aria-selected={warehouse === item}
-            className={warehouse === item ? "warehouse-tab active" : "warehouse-tab"}
-            onClick={() => { setWarehouse(item); setEditing(null); setFormOpen(false); }}>
-            {item}<strong>{stock.reduce((sum, part) => sum + balanceOf(balances, part.code, item), 0)} un.</strong>
+          <button
+            key={item}
+            type="button"
+            role="tab"
+            aria-selected={warehouse === item}
+            className={
+              warehouse === item ? "warehouse-tab active" : "warehouse-tab"
+            }
+            onClick={() => {
+              setWarehouse(item);
+              setEditing(null);
+              setFormOpen(false);
+            }}
+          >
+            {item}
+            <strong>
+              {stock.reduce(
+                (sum, part) => sum + balanceOf(balances, part.code, item),
+                0,
+              )}{" "}
+              un.
+            </strong>
           </button>
         ))}
       </div>
@@ -243,16 +351,19 @@ export function StockScreen({
           </span>
           <span>Peças cadastradas</span>
           <strong>{stock.length}</strong>
-          <small>
-            {WAREHOUSES.length} almoxarifados
-          </small>
+          <small>{WAREHOUSES.length} almoxarifados</small>
         </div>
         <div className="stat">
           <span className="stat-icon green">
             <Package size={20} aria-hidden="true" />
           </span>
-          <span>Unidades disponíveis</span>
-          <strong>{stock.reduce((sum, item) => sum + balanceOf(balances, item.code, warehouse), 0)}</strong>
+          <span>Saldo físico</span>
+          <strong>
+            {stock.reduce(
+              (sum, item) => sum + balanceOf(balances, item.code, warehouse),
+              0,
+            )}
+          </strong>
           <small>Saldo do {warehouse}</small>
         </div>
         <div className="stat">
@@ -261,7 +372,16 @@ export function StockScreen({
           </span>
           <span>Abaixo do mínimo</span>
           <strong>
-            {stock.filter((item) => balanceOf(balances, item.code, warehouse) < Math.max(2, Math.ceil(item.minimum / (warehouse === "Central" ? 4 : 8)))).length}
+            {
+              stock.filter(
+                (item) =>
+                  balanceOf(balances, item.code, warehouse) <
+                  Math.max(
+                    2,
+                    Math.ceil(item.minimum / (warehouse === "Central" ? 4 : 8)),
+                  ),
+              ).length
+            }
           </strong>
           <small>Necessitam reposição</small>
         </div>
@@ -289,6 +409,105 @@ export function StockScreen({
             </button>
           </div>
           <div className="form-grid">
+            {persistent && (
+              <>
+                <label>
+                  Unidade
+                  <input
+                    name="unit"
+                    defaultValue={editing?.unit ?? "un"}
+                    required
+                    maxLength={24}
+                  />
+                </label>
+                <label>
+                  Categoria
+                  <input
+                    name="category"
+                    defaultValue={editing?.category ?? "Peças"}
+                    required
+                    maxLength={80}
+                  />
+                </label>
+                <label>
+                  Criticidade
+                  <select
+                    name="criticality"
+                    defaultValue={editing?.criticality ?? 1}
+                  >
+                    <option value="1">Normal</option>
+                    <option value="2">Importante</option>
+                    <option value="3">Crítica</option>
+                  </select>
+                </label>
+                <label>
+                  Corredor
+                  <input
+                    name="aisle"
+                    defaultValue={
+                      editing?.locations?.find((l) => l.warehouse === warehouse)
+                        ?.aisle
+                    }
+                    maxLength={80}
+                  />
+                </label>
+                <label>
+                  Prateleira
+                  <input
+                    name="shelf"
+                    defaultValue={
+                      editing?.locations?.find((l) => l.warehouse === warehouse)
+                        ?.shelf
+                    }
+                    maxLength={80}
+                  />
+                </label>
+                <label>
+                  Mínimo neste local
+                  <input
+                    name="localMinimum"
+                    type="number"
+                    min="0"
+                    defaultValue={
+                      editing?.locations?.find((l) => l.warehouse === warehouse)
+                        ?.minimum ?? 1
+                    }
+                  />
+                </label>
+                <label>
+                  Capacidade neste local (opcional)
+                  <input
+                    name="capacity"
+                    type="number"
+                    min="1"
+                    defaultValue={
+                      editing?.locations?.find((l) => l.warehouse === warehouse)
+                        ?.capacity ?? ""
+                    }
+                  />
+                </label>
+                <label>
+                  ID do ponto na planta (opcional)
+                  <input
+                    name="mapNodeId"
+                    defaultValue={
+                      editing?.locations?.find((l) => l.warehouse === warehouse)
+                        ?.nodeId
+                    }
+                    maxLength={64}
+                  />
+                </label>
+                <label>
+                  Justificativa da alteração
+                  <input
+                    name="reason"
+                    required={!!editing}
+                    minLength={3}
+                    maxLength={1000}
+                  />
+                </label>
+              </>
+            )}
             <label>
               Nome da peça
               <input
@@ -329,11 +548,7 @@ export function StockScreen({
             </label>
             <label>
               Almoxarifado
-              <select
-                name="warehouse"
-                value={warehouse}
-                disabled
-              >
+              <select name="warehouse" value={warehouse} disabled>
                 {warehouses.map((item) => (
                   <option key={item}>{item}</option>
                 ))}
@@ -355,7 +570,9 @@ export function StockScreen({
                 type="number"
                 min="0"
                 required
-                defaultValue={editing ? balanceOf(balances, editing.code, warehouse) : 0}
+                defaultValue={
+                  editing ? balanceOf(balances, editing.code, warehouse) : 0
+                }
                 inputMode="numeric"
               />
             </label>
@@ -435,7 +652,9 @@ export function StockScreen({
             Almoxarifado
             <select
               value={warehouse}
-              onChange={(event) => setWarehouse(event.target.value as Warehouse)}
+              onChange={(event) =>
+                setWarehouse(event.target.value as Warehouse)
+              }
             >
               {warehouses.map((item) => (
                 <option key={item}>{item}</option>
@@ -471,7 +690,7 @@ export function StockScreen({
               <article
                 className={
                   "stock-result" +
-                  (item.quantity < item.minimum ? " is-critical" : "")
+                  (item.available < item.minimum ? " is-critical" : "")
                 }
                 key={item.id}
               >
@@ -491,7 +710,7 @@ export function StockScreen({
                   <div className="card-line">
                     <strong>{item.name}</strong>
                     {badge(
-                      item.quantity < item.minimum ? "Crítico" : "Disponível",
+                      item.available < item.minimum ? "Crítico" : "Disponível",
                     )}
                   </div>
                   <p>
@@ -500,6 +719,12 @@ export function StockScreen({
                   </p>
                   <div className="stock-balance">
                     <strong>{item.quantity}</strong>
+                    {persistent && (
+                      <small>
+                        Reservado: {item.reserved} | Disponível:{" "}
+                        {item.available}
+                      </small>
+                    )}
                     <span>
                       unidades em estoque
                       <br />
@@ -516,7 +741,7 @@ export function StockScreen({
                           Math.min(100, (item.quantity / item.minimum) * 100) +
                           "%",
                         background:
-                          item.quantity < item.minimum
+                          item.available < item.minimum
                             ? "var(--coral)"
                             : "var(--green)",
                       }}
@@ -525,14 +750,21 @@ export function StockScreen({
                   <div className="stock-result-actions">
                     <Link
                       className="link-button"
-                      href={"/warehouse/stock/peca/" + item.id + "?warehouse=" + encodeURIComponent(warehouse)}
+                      href={
+                        "/warehouse/stock/peca/" +
+                        item.id +
+                        "?warehouse=" +
+                        encodeURIComponent(warehouse)
+                      }
                     >
                       Detalhes
                     </Link>
                     <button
                       className="link-button"
                       onClick={() => {
-                        setEditing(stock.find((part) => part.id === item.id) ?? item);
+                        setEditing(
+                          stock.find((part) => part.id === item.id) ?? item,
+                        );
                         setFormOpen(true);
                         window.scrollTo({ top: 0, behavior: "smooth" });
                       }}
@@ -545,7 +777,8 @@ export function StockScreen({
                       onClick={() => remove(item)}
                       aria-label={"Excluir " + item.name}
                     >
-                      <Trash2 size={16} /> {persistent ? "Desativar" : "Excluir"}
+                      <Trash2 size={16} />{" "}
+                      {persistent ? "Desativar" : "Excluir"}
                     </button>
                   </div>
                 </div>

@@ -49,7 +49,7 @@ const toIso = (date: string) =>
   date.includes("/") ? date.split("/").reverse().join("-") : date;
 const total = (items: Movement[], type: Movement["type"]) =>
   items
-    .filter((item) => item.type === type)
+    .filter((item) => (item.kind ? item.kind === type : item.type === type))
     .reduce((sum, item) => sum + item.quantity, 0);
 
 function exportDashboard(rows: Movement[], stock: Part[], requests: Request[]) {
@@ -158,8 +158,27 @@ export function WarehouseDashboard({
       }),
     [requests, stock, filters],
   );
-  const relevantStock = stock.filter((item) => filters.part === "Todas" || item.code === filters.part)
-    .map((item) => filters.warehouse === "Todos" ? item : { ...item, warehouse: filters.warehouse, quantity: balanceOf(balances, item.code, filters.warehouse as (typeof WAREHOUSES)[number]), minimum: Math.max(2, Math.ceil(item.minimum / (filters.warehouse === "Central" ? 4 : 8))) });
+  const relevantStock = stock
+    .filter((item) => filters.part === "Todas" || item.code === filters.part)
+    .map((item) =>
+      filters.warehouse === "Todos"
+        ? item
+        : {
+            ...item,
+            warehouse: filters.warehouse,
+            quantity: balanceOf(
+              balances,
+              item.code,
+              filters.warehouse as (typeof WAREHOUSES)[number],
+            ),
+            minimum: Math.max(
+              2,
+              Math.ceil(
+                item.minimum / (filters.warehouse === "Central" ? 4 : 8),
+              ),
+            ),
+          },
+    );
   const pieceRows = relevantStock
     .map((item) => ({
       item,
@@ -219,7 +238,9 @@ export function WarehouseDashboard({
       )}
       <div className="dashboard-actions">
         <span className="demo-label">
-          {persistent ? "Dados atualizados do sistema" : "Dados demonstrativos e alterações desta sessão"}
+          {persistent
+            ? "Dados atualizados do sistema"
+            : "Dados demonstrativos e alterações desta sessão"}
         </span>
         <button
           className="button secondary"
@@ -394,12 +415,51 @@ export function WarehouseDashboard({
           </small>
         </button>
       </div>
-      <section className="panel visual-panel"><div className="panel-head"><div><h2>Onde estão as peças</h2><p>Compare o saldo dos cinco almoxarifados. Toque em uma barra para filtrar o dashboard.</p></div></div>
-        <div className="visual-bars">{WAREHOUSES.map((name) => {
-          const amount = stock.reduce((sum, part) => sum + balanceOf(balances, part.code, name), 0);
-          const maximum = Math.max(1, ...WAREHOUSES.map((place) => stock.reduce((sum, part) => sum + balanceOf(balances, part.code, place), 0)));
-          return <button className="visual-bar visual-bar-button" type="button" key={name} onClick={() => setFilter("warehouse", name)} aria-label={`Filtrar ${name}, ${amount} unidades`}><span>{name}</span><div className="metric-track"><i className={name === "Central" ? "entry" : "exit"} style={{ width: `${amount / maximum * 100}%` }} /></div><strong>{amount} un.</strong></button>;
-        })}</div>
+      <section className="panel visual-panel">
+        <div className="panel-head">
+          <div>
+            <h2>Onde estão as peças</h2>
+            <p>
+              Compare o saldo dos cinco almoxarifados. Toque em uma barra para
+              filtrar o dashboard.
+            </p>
+          </div>
+        </div>
+        <div className="visual-bars">
+          {WAREHOUSES.map((name) => {
+            const amount = stock.reduce(
+              (sum, part) => sum + balanceOf(balances, part.code, name),
+              0,
+            );
+            const maximum = Math.max(
+              1,
+              ...WAREHOUSES.map((place) =>
+                stock.reduce(
+                  (sum, part) => sum + balanceOf(balances, part.code, place),
+                  0,
+                ),
+              ),
+            );
+            return (
+              <button
+                className="visual-bar visual-bar-button"
+                type="button"
+                key={name}
+                onClick={() => setFilter("warehouse", name)}
+                aria-label={`Filtrar ${name}, ${amount} unidades`}
+              >
+                <span>{name}</span>
+                <div className="metric-track">
+                  <i
+                    className={name === "Central" ? "entry" : "exit"}
+                    style={{ width: `${(amount / maximum) * 100}%` }}
+                  />
+                </div>
+                <strong>{amount} un.</strong>
+              </button>
+            );
+          })}
+        </div>
       </section>
       <div className="warehouse-panels">
         <section className="panel">

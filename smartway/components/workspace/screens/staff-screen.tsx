@@ -1,6 +1,8 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Pencil, Plus, UserRoundCheck, UserRoundX } from "lucide-react";
 import { heading } from "../ui";
 import { useDemoStore } from "../demo-store";
@@ -29,17 +31,52 @@ export function StaffScreen({
   setMessage: React.Dispatch<React.SetStateAction<string>>;
 }) {
   const { staff, setStaff, persistent, runAction } = useDemoStore();
+  const searchParams = useSearchParams(),
+    pathname = usePathname(),
+    router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<StaffUser>(emptyUser);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [idFilter, setIdFilter] = useState("");
-  const [emailFilter, setEmailFilter] = useState("");
-  const [sectorFilter, setSectorFilter] = useState("Todos");
-  const [roleFilter, setRoleFilter] = useState("Todas");
-  const [blockFilter, setBlockFilter] = useState("Todos");
-  const [statusFilter, setStatusFilter] = useState("Todos");
+  const [idFilter, setIdFilter] = useState(searchParams.get("id") ?? "");
+  const [emailFilter, setEmailFilter] = useState(
+    searchParams.get("email") ?? "",
+  );
+  const [sectorFilter, setSectorFilter] = useState(
+    searchParams.get("sector") ?? "Todos",
+  );
+  const [roleFilter, setRoleFilter] = useState(
+    searchParams.get("role") ?? "Todas",
+  );
+  const [blockFilter, setBlockFilter] = useState(
+    searchParams.get("block") ?? "Todos",
+  );
+  const [statusFilter, setStatusFilter] = useState(
+    searchParams.get("status") ?? "Todos",
+  );
+  useEffect(() => {
+    const q = new URLSearchParams();
+    for (const [k, v, empty] of [
+      ["id", idFilter, ""],
+      ["email", emailFilter, ""],
+      ["sector", sectorFilter, "Todos"],
+      ["role", roleFilter, "Todas"],
+      ["block", blockFilter, "Todos"],
+      ["status", statusFilter, "Todos"],
+    ])
+      if (v !== empty) q.set(k, v);
+    router.replace(pathname + (q.size ? "?" + q : ""), { scroll: false });
+  }, [
+    idFilter,
+    emailFilter,
+    sectorFilter,
+    roleFilter,
+    blockFilter,
+    statusFilter,
+    pathname,
+    router,
+  ]);
 
   const sectors = ["Todos", ...new Set(staff.map((user) => user.sector))];
   const visibleStaff = staff.filter(
@@ -79,7 +116,9 @@ export function StaffScreen({
       name: form.name.trim(),
       email: form.email.trim().toLowerCase(),
       sector: form.sector.trim(),
-      block: ["Funcionário", "Líder de bloco"].includes(form.role) ? form.block : undefined,
+      block: ["Funcionário", "Líder de bloco"].includes(form.role)
+        ? form.block
+        : undefined,
     };
     if (!user.id || !user.name || !user.email || !user.sector) {
       setMessage("Preencha ID, nome, e-mail e setor.");
@@ -106,9 +145,16 @@ export function StaffScreen({
       try {
         await runAction({ type: "saveUser", user, editingId, password });
         setMessage(editingId ? "Usuário atualizado." : "Usuário cadastrado.");
-        setFormOpen(false); setEditingId(null); setPassword(""); setConfirmPassword("");
+        setFormOpen(false);
+        setEditingId(null);
+        setPassword("");
+        setConfirmPassword("");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível salvar o usuário.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível salvar o usuário.",
+        );
       }
       return;
     }
@@ -129,10 +175,18 @@ export function StaffScreen({
   async function toggleActive(user: StaffUser) {
     if (persistent) {
       try {
-        await runAction({ type: "toggleUser", id: user.id, active: !user.active });
+        await runAction({
+          type: "toggleUser",
+          id: user.id,
+          active: !user.active,
+        });
         setMessage(user.active ? "Usuário desativado." : "Usuário reativado.");
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível alterar o usuário.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível alterar o usuário.",
+        );
       }
       return;
     }
@@ -156,9 +210,12 @@ export function StaffScreen({
           "Usuários",
           "Cadastre, edite, filtre e controle o acesso dos colaboradores.",
         )}
-        <button className="button primary" onClick={() => openForm()}>
+        <Link
+          className="button primary"
+          href={`/admin/create/new?return=${encodeURIComponent(pathname + (searchParams.size ? "?" + searchParams.toString() : ""))}`}
+        >
           <Plus size={17} aria-hidden="true" /> Novo usuário
-        </button>
+        </Link>
       </div>
       <div className="stats staff-summary">
         <div className="stat">
@@ -179,7 +236,11 @@ export function StaffScreen({
           <div className="panel-head">
             <div>
               <h2>{editingId ? "Editar usuário" : "Cadastrar usuário"}</h2>
-              <p>{persistent ? "Dados salvos no MySQL após confirmação." : "Dados demonstrativos. As alterações ficam nesta sessão."}</p>
+              <p>
+                {persistent
+                  ? "Dados salvos no MySQL após confirmação."
+                  : "Dados demonstrativos. As alterações ficam nesta sessão."}
+              </p>
             </div>
             <button
               type="button"
@@ -268,25 +329,45 @@ export function StaffScreen({
               </select>
             </label>
             {["Funcionário", "Líder de bloco"].includes(form.role) && (
-              <label>Bloco de atuação
-                <select value={form.block ?? ""} onChange={(event) => updateField("block", event.target.value)} required>
+              <label>
+                Bloco de atuação
+                <select
+                  value={form.block ?? ""}
+                  onChange={(event) => updateField("block", event.target.value)}
+                  required
+                >
                   <option value="">Selecione</option>
-                  {BLOCKS.map((block) => <option key={block}>{block}</option>)}
+                  {BLOCKS.map((block) => (
+                    <option key={block}>{block}</option>
+                  ))}
                 </select>
               </label>
             )}
             {persistent && (
-              <label>{editingId ? "Nova senha (opcional)" : "Senha inicial"}
-                <input type="password" autoComplete="new-password" minLength={12} required={!editingId}
-                  value={password} onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Pelo menos 12 caracteres" />
+              <label>
+                {editingId ? "Nova senha (opcional)" : "Senha inicial"}
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  required={!editingId}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Pelo menos 12 caracteres"
+                />
               </label>
             )}
             {persistent && (
-              <label>Confirme a senha
-                <input type="password" autoComplete="new-password" required={!editingId || Boolean(password)}
-                  value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)}
-                  placeholder="Digite a senha novamente" />
+              <label>
+                Confirme a senha
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  required={!editingId || Boolean(password)}
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Digite a senha novamente"
+                />
               </label>
             )}
           </div>
@@ -356,10 +437,16 @@ export function StaffScreen({
               <option>Desativados</option>
             </select>
           </label>
-          <label>Bloco
-            <select value={blockFilter} onChange={(event) => setBlockFilter(event.target.value)}>
+          <label>
+            Bloco
+            <select
+              value={blockFilter}
+              onChange={(event) => setBlockFilter(event.target.value)}
+            >
               <option>Todos</option>
-              {BLOCKS.map((block) => <option key={block}>{block}</option>)}
+              {BLOCKS.map((block) => (
+                <option key={block}>{block}</option>
+              ))}
             </select>
           </label>
         </div>
@@ -400,7 +487,8 @@ export function StaffScreen({
                     ID {user.id} · {user.email}
                   </span>
                   <small>
-                    {user.sector} · {user.role}{user.block ? " · " + user.block : ""}
+                    {user.sector} · {user.role}
+                    {user.block ? " · " + user.block : ""}
                   </small>
                 </div>
                 <div className="staff-card-actions">

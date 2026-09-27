@@ -6,21 +6,32 @@ import Link from "next/link";
 import { useDemoStore } from "./demo-store";
 import { useEmployeeName, useEmployeeBlock } from "./employee-identity";
 import { badge } from "./ui";
+import { can } from "@/lib/permissions";
+import { RequestOperations } from "./operations/request-operations";
+import { OperationsPanel } from "./operations/operations-panel";
+import { MapEditor } from "./operations/map-editor";
 import { PurchaseScreen } from "./screens/purchase-screen";
 import { RecommendationScreen } from "./screens/recommendation-screen";
 import { StockMovementHistory } from "./screens/stock-movement-history";
 import { balanceOf, warehouseForBlock } from "@/lib/inventory";
 import { EmployeeRequestScreen } from "./screens/employee-request-screen";
 import { StaffScreen } from "./screens/staff-screen";
+import { StaffCreateScreen } from "./screens/staff-create-screen";
 import { StockScreen } from "./screens/stock-screen";
 import { ReturnsScreen } from "./screens/returns-screen";
 import { DashboardScreen } from "./screens/dashboard-screen";
 import { WarehouseDashboard } from "./screens/warehouse-dashboard";
 import { RequestsScreen } from "./screens/requests-screen";
 import { type Request, type Part } from "@/lib/demo-data";
-import { pathFor, roleLanding, type Role, type Page } from "@/lib/workspace-routes";
+import {
+  pathFor,
+  roleLanding,
+  type Role,
+  type Page,
+} from "@/lib/workspace-routes";
 import {
   Boxes,
+  MapPinned,
   ArrowLeft,
   RotateCcw,
   ChartNoAxesCombined,
@@ -45,6 +56,7 @@ const roles: Record<
     pages: [
       { id: "dashboard", label: "Dashboard" },
       { id: "requisicoes", label: "Ver requisições" },
+      { id: "mapa", label: "Planta e rotas" },
       { id: "funcionarios", label: "Funcionários" },
       { id: "historico", label: "Histórico" },
     ],
@@ -78,6 +90,7 @@ const roles: Record<
   },
 };
 const pageIcons = {
+  mapa: MapPinned,
   dashboard: LayoutDashboard,
   requisicoes: ClipboardList,
   funcionarios: UsersRound,
@@ -122,8 +135,18 @@ export default function Workspace({
   const employeeBlock = useEmployeeBlock();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const { requests, setRequests, stock, setStock, movements, setMovements, balances, setBalances, persistent, runAction } =
-    useDemoStore();
+  const {
+    requests,
+    setRequests,
+    stock,
+    setStock,
+    movements,
+    setMovements,
+    balances,
+    setBalances,
+    persistent,
+    runAction,
+  } = useDemoStore();
   const [detail, setDetail] = useState<Request | null>(null);
   const [qrCode, setQrCode] = useState("");
   const [search, setSearch] = useState("");
@@ -131,14 +154,31 @@ export default function Workspace({
   const [message, setMessage] = useState("");
   const menuButton = useRef<HTMLButtonElement>(null);
   const sidebar = useRef<HTMLElement>(null);
-  const current = roles[role];
-  const backHref = routePart && routePart !== "all"
-    ? pathFor(role, page)
-    : dashboardView
-      ? roleLanding[role]
-      : page === "dashboard" || (role === "funcionario" && page === "nova")
-        ? `/inicio/${role}`
-        : roleLanding[role];
+  const pagePermissions = {
+    mapa: "map",
+    funcionarios: "people",
+    compra: "planning",
+    recomendacoes: "planning",
+    estoque: "stock",
+    devolucoes: "stock",
+    nova: "request",
+    solicitacoes: "approve",
+    dashboard: "history",
+    historico: "history",
+    requisicoes: "history",
+  } as const;
+  const current = {
+    ...roles[role],
+    pages: roles[role].pages.filter((p) => can(role, pagePermissions[p.id])),
+  };
+  const backHref =
+    routePart && routePart !== "all"
+      ? pathFor(role, page)
+      : dashboardView
+        ? roleLanding[role]
+        : page === "dashboard" || (role === "funcionario" && page === "nova")
+          ? `/inicio/${role}`
+          : roleLanding[role];
   const active =
     current.pages.find((item) => item.id === page) ?? current.pages[0];
   const roleRequests = requests.filter((item) =>
@@ -166,7 +206,9 @@ export default function Workspace({
   );
   const requestRows =
     role === "almoxarifado" && page === "requisicoes"
-      ? sortedRequests.filter((item) => item.status === "Aprovada")
+      ? sortedRequests.filter((item) =>
+          ["Aprovada", "Cancelamento solicitado"].includes(item.status),
+        )
       : shownRequests;
   const purchaseItems = stock
     .map((item) => ({ item, projection: forecast(item) }))
@@ -205,12 +247,21 @@ export default function Workspace({
     };
   }, [drawerOpen]);
   function navigate(next: Page) {
+    const state = window as typeof window & { __marconUnsavedUser?: boolean };
+    if (
+      state.__marconUnsavedUser &&
+      !window.confirm("Há alterações não salvas. Deseja sair mesmo assim?")
+    )
+      return;
     router.push(pathFor(role, next));
     setDrawerOpen(false);
     setSearch("");
     setStatusFilter("Todas");
   }
-  async function updateStatus(id: number, status: Request["status"]): Promise<boolean> {
+  async function updateStatus(
+    id: number,
+    status: Request["status"],
+  ): Promise<boolean> {
     const request = requests.find((item) => item.id === id);
     if (!request) return false;
     const leaderAllowed =
@@ -228,12 +279,22 @@ export default function Workspace({
     }
     if (persistent) {
       try {
-        await runAction({ type: "changeRequestStatus", id, status, qrCode: qrCode.trim() });
+        await runAction({
+          type: "changeRequestStatus",
+          id,
+          status,
+          qrCode: qrCode.trim(),
+          confirmedQuantity: request.quantity,
+        });
         setQrCode("");
         setMessage("Situação atualizada.");
         return true;
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Não foi possível atualizar a requisição.");
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível atualizar a requisição.",
+        );
         return false;
       }
     }
@@ -247,7 +308,8 @@ export default function Workspace({
       }
       const source = warehouseForBlock(request.block);
       const sourceBalance = balanceOf(balances, part.code, source);
-      const actualSource = sourceBalance >= request.quantity ? source : "Central";
+      const actualSource =
+        sourceBalance >= request.quantity ? source : "Central";
       if (balanceOf(balances, part.code, actualSource) < request.quantity) {
         setMessage("Saldo insuficiente para esta separação.");
         return false;
@@ -259,7 +321,13 @@ export default function Workspace({
             : item,
         ),
       );
-      setBalances((items) => items.map((item) => item.partCode === part.code && item.warehouse === actualSource ? { ...item, quantity: item.quantity - request.quantity } : item));
+      setBalances((items) =>
+        items.map((item) =>
+          item.partCode === part.code && item.warehouse === actualSource
+            ? { ...item, quantity: item.quantity - request.quantity }
+            : item,
+        ),
+      );
       setMovements((items) => [
         {
           id: Date.now(),
@@ -418,7 +486,9 @@ export default function Workspace({
             <span className="avatar">{current.name[0]}</span>
             <div>
               <strong>{current.name}</strong>
-              <small>{persistent ? "Conta ativa" : "Visualização de demonstração"}</small>
+              <small>
+                {persistent ? "Conta ativa" : "Visualização de demonstração"}
+              </small>
             </div>
           </div>
         </div>
@@ -426,7 +496,12 @@ export default function Workspace({
       <div className="main">
         <header className="topbar">
           <div className="top-left">
-            <Link className="icon-button" aria-label="Voltar" title="Voltar" href={backHref}>
+            <Link
+              className="icon-button"
+              aria-label="Voltar"
+              title="Voltar"
+              href={backHref}
+            >
               <ArrowLeft size={20} aria-hidden="true" />
             </Link>
             <button
@@ -444,9 +519,16 @@ export default function Workspace({
           </div>
           <div className="role-control">
             <strong>{current.name}</strong>
-            <Link href="/profile" className="workspace-profile">Editar perfil</Link>
+            <Link href="/profile" className="workspace-profile">
+              Editar perfil
+            </Link>
             <form action="/api/logout" method="post">
-              <button type="submit" className="workspace-logout" aria-label="Sair da conta" title="Sair da conta">
+              <button
+                type="submit"
+                className="workspace-logout"
+                aria-label="Sair da conta"
+                title="Sair da conta"
+              >
                 <LogOut size={18} aria-hidden="true" />
                 <span>Sair da conta</span>
               </button>
@@ -465,14 +547,14 @@ export default function Workspace({
               </button>
             </div>
           )}
-          {page === "dashboard" && role === "almoxarifado" && (
+          {!persistent && page === "dashboard" && role === "almoxarifado" && (
             <WarehouseDashboard
               stock={stock}
               requests={roleRequests}
               movements={movements}
             />
           )}
-          {page === "dashboard" && role !== "almoxarifado" && (
+          {!persistent && page === "dashboard" && role !== "almoxarifado" && (
             <DashboardScreen
               role={role}
               current={current}
@@ -485,37 +567,65 @@ export default function Workspace({
               NavIcon={NavIcon}
             />
           )}
-          {["requisicoes", "solicitacoes", "historico"].includes(page) && (
-            <RequestsScreen
-              role={role}
-              page={page}
-              current={current}
-              active={active}
-              requestRows={requestRows}
-              search={search}
-              setSearch={setSearch}
-              statusFilter={statusFilter}
-              setStatusFilter={setStatusFilter}
-              qrCode={qrCode}
-              setQrCode={setQrCode}
-              exportCsv={exportCsv}
-              updateStatus={updateStatus}
-              setDetail={setDetail}
-              allowedStatuses={allowedStatuses}
-              requestCard={requestCard}
-            />
-          )}
-          {page === "historico" && (role === "admin" || role === "almoxarifado") && <StockMovementHistory />}
+          {!persistent &&
+            ["requisicoes", "solicitacoes", "historico"].includes(page) && (
+              <RequestsScreen
+                role={role}
+                page={page}
+                current={current}
+                active={active}
+                requestRows={requestRows}
+                search={search}
+                setSearch={setSearch}
+                statusFilter={statusFilter}
+                setStatusFilter={setStatusFilter}
+                qrCode={qrCode}
+                setQrCode={setQrCode}
+                exportCsv={exportCsv}
+                updateStatus={updateStatus}
+                setDetail={setDetail}
+                allowedStatuses={allowedStatuses}
+                requestCard={requestCard}
+              />
+            )}
+          {!persistent &&
+            page === "historico" &&
+            (role === "admin" || role === "almoxarifado") && (
+              <StockMovementHistory />
+            )}
           {page === "nova" && <EmployeeRequestScreen routePart={routePart} />}
-          {page === "funcionarios" && <StaffScreen setMessage={setMessage} />}
+          {page === "funcionarios" && routePart === "new" && (
+            <StaffCreateScreen />
+          )}
+          {page === "funcionarios" && routePart !== "new" && (
+            <StaffScreen setMessage={setMessage} />
+          )}
           {page === "estoque" && (
             <StockScreen routePart={routePart} setMessage={setMessage} />
           )}
           {page === "devolucoes" && <ReturnsScreen setMessage={setMessage} />}
-          {page === "compra" && (
+          {page === "mapa" && <MapEditor />}
+          {persistent &&
+            [
+              "dashboard",
+              "historico",
+              "compra",
+              "recomendacoes",
+              "requisicoes",
+              "solicitacoes",
+            ].includes(page) && (
+              <OperationsPanel
+                key={page + dashboardView + routePart}
+                role={role}
+                mode={page}
+                dashboardView={dashboardView}
+                routePart={routePart}
+              />
+            )}
+          {!persistent && page === "compra" && (
             <PurchaseScreen purchaseItems={purchaseItems} />
           )}
-          {page === "recomendacoes" && <RecommendationScreen />}
+          {!persistent && page === "recomendacoes" && <RecommendationScreen />}
         </main>
       </div>
       {detail && (
@@ -538,6 +648,7 @@ export default function Workspace({
             >
               <X size={20} />
             </button>
+            {persistent && <RequestOperations id={detail.id} role={role} />}
             <p className="kicker">REQUISIÇÃO #{detail.id}</p>
             <h2>{detail.material}</h2>
             <p>Código: {detail.code || "Não informado"}</p>

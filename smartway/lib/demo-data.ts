@@ -1,11 +1,31 @@
 export type Request = {
+  createdAt?: string;
+  requesterId?: string;
+  sector?: string;
+  batchId?: string;
+  reserved?: number;
+  receivedAt?: string;
+  deliveredAt?: string;
+  cancellationReason?: string;
+  allocations?: {
+    warehouse: string;
+    quantity: number;
+    location: string;
+    nodeId?: string;
+  }[];
   id: number;
   material: string;
   quantity: number;
   person: string;
   block: string;
   date: string;
-  status: "Pendente" | "Em análise" | "Aprovada" | "Entregue" | "Cancelada";
+  status:
+    | "Pendente"
+    | "Em análise"
+    | "Aprovada"
+    | "Entregue"
+    | "Cancelada"
+    | "Cancelamento solicitado";
   priority: "Leve" | "Moderado" | "Urgente";
   code?: string;
   justification?: string;
@@ -57,6 +77,23 @@ export const initialRequests: Request[] = [
   },
 ];
 export type Part = {
+  reserved?: number;
+  available?: number;
+  unit?: string;
+  category?: string;
+  criticality?: number;
+  locations?: {
+    warehouse: string;
+    warehouseId: number;
+    aisle: string;
+    shelf: string;
+    minimum: number;
+    capacity: number | null;
+    nodeId?: string;
+    quantity: number;
+    available: number;
+    reserved: number;
+  }[];
   id: number;
   name: string;
   code: string;
@@ -132,6 +169,9 @@ export const initialStock: Part[] = [
 ];
 
 export type Movement = {
+  kind?: string;
+  reason?: string;
+  actor?: string;
   id: number;
   partCode: string;
   type: "entrada" | "saida";
@@ -218,6 +258,9 @@ export const initialMovements: Movement[] = [
 ];
 
 export type ReturnRecord = {
+  inspectionStatus?: string;
+  requestId?: number;
+  warehouse?: string;
   id: number;
   partCode: string;
   packSize: number;

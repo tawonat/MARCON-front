@@ -14,8 +14,16 @@ export async function GET() {
   }
   const items = databaseEnabled()
     ? (await workspaceSnapshot(user)).stock.map((part) => ({
-        id: part.code, name: part.name, category: "Peças", stock: part.quantity,
-        unit: "unidades", location: part.location, description: part.name,
+        id: part.code,
+        name: part.name,
+        category: part.category,
+        stock: part.available ?? part.quantity,
+        unit: part.unit ?? "un",
+        location:
+          part.locations
+            ?.map((l) => `${l.warehouse} / ${l.aisle} / ${l.shelf}`)
+            .join("; ") ?? part.location,
+        description: part.name,
         specification: `QR/ID ${part.qrCode ?? part.code}`,
       }))
     : catalogItems;

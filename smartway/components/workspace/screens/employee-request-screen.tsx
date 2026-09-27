@@ -58,7 +58,19 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
   const router = useRouter();
   const employeeName = useEmployeeName();
   const employeeBlock = useEmployeeBlock();
-  const { stock, requests, setRequests, cart, setCart, persistent, runAction } = useDemoStore();
+  const {
+    stock: rawStock,
+    requests,
+    setRequests,
+    cart,
+    setCart,
+    persistent,
+    runAction,
+  } = useDemoStore();
+  const stock = rawStock.map((p) => ({
+    ...p,
+    quantity: p.available ?? p.quantity,
+  }));
   const [query, setQuery] = useState("");
   const [warehouse, setWarehouse] = useState("Todos");
   const [availableOnly, setAvailableOnly] = useState(false);
@@ -79,12 +91,23 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
         )
       : undefined;
   const isDetail = Boolean(routePart && routePart !== "all");
-  const warehouses = ["Todos", ...new Set(stock.map((part) => part.warehouse))];
+  const warehouses = [
+    "Todos",
+    ...new Set(
+      stock.flatMap(
+        (part) => part.locations?.map((l) => l.warehouse) ?? [part.warehouse],
+      ),
+    ),
+  ];
   const filtered = stock.filter(
     (part) =>
       (!query ||
-        normalize(part.name + " " + part.code).includes(normalize(query))) &&
-      (warehouse === "Todos" || part.warehouse === warehouse) &&
+        normalize(
+          part.name + " " + part.code + " " + (part.category ?? ""),
+        ).includes(normalize(query))) &&
+      (warehouse === "Todos" ||
+        part.warehouse === warehouse ||
+        part.locations?.some((l) => l.warehouse === warehouse)) &&
       (!availableOnly || part.quantity > 0),
   );
   const cartUnits = cart.reduce((sum, entry) => sum + entry.quantity, 0);
@@ -143,11 +166,25 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
     }
     if (persistent) {
       try {
-        const result = await runAction({ type: "createRequests", entries: [{ code: selectedPart.code, quantity: amount, priority, justification: justification.trim() }] });
+        const result = await runAction({
+          type: "createRequests",
+          entries: [
+            {
+              code: selectedPart.code,
+              quantity: amount,
+              priority,
+              justification: justification.trim(),
+            },
+          ],
+        });
         setCreatedId((result.ids as number[])[0]);
         resetForm();
       } catch (error) {
-        setError(error instanceof Error ? error.message : "Não foi possível criar a requisição.");
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível criar a requisição.",
+        );
       }
       return;
     }
@@ -199,7 +236,11 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
         setError("");
         router.push("/employee/history");
       } catch (error) {
-        setError(error instanceof Error ? error.message : "Não foi possível confirmar o carrinho.");
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível confirmar o carrinho.",
+        );
       }
       return;
     }
@@ -238,12 +279,20 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
           <p>{cartUnits} unidades aguardando confirmação.</p>
         </div>
         {cart.length > 0 && (
-          <button type="button" className={styles.primaryAction} onClick={checkoutCart}>
+          <button
+            type="button"
+            className={styles.primaryAction}
+            onClick={checkoutCart}
+          >
             Finalizar requisição <ArrowRight size={17} />
           </button>
         )}
       </div>
-      {cart.length === 0 && <p>Seu carrinho está vazio. Escolha uma peça no catálogo para começar.</p>}
+      {cart.length === 0 && (
+        <p>
+          Seu carrinho está vazio. Escolha uma peça no catálogo para começar.
+        </p>
+      )}
       {cart.map((entry, index) => {
         const part = stock.find((piece) => piece.code === entry.code);
         return (
@@ -297,7 +346,10 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
     return (
       <main className={styles.content}>
         <div className={styles.employeeDetailNav}>
-          <Link href="/employee/request#carrinho" className={styles.cartShortcut}>
+          <Link
+            href="/employee/request#carrinho"
+            className={styles.cartShortcut}
+          >
             <ShoppingCart size={17} /> Acessar carrinho ({cart.length})
           </Link>
           <Link href="/employee/request" className={styles.backLink}>
@@ -346,7 +398,13 @@ export function EmployeeRequestScreen({ routePart }: { routePart?: string }) {
                 <span>
                   Localização
                   <strong>
-                    {selectedPart.warehouse} · posição {selectedPart.location}
+                    {selectedPart.warehouse} · posição{" "}
+                    {selectedPart.locations
+                      ?.map(
+                        (l) =>
+                          `${l.warehouse}: ${l.aisle} / ${l.shelf} (${l.available} livres)`,
+                      )
+                      .join("; ") ?? selectedPart.location}
                   </strong>
                 </span>
               </div>

@@ -42,6 +42,7 @@ type Store = {
 const Context = createContext<Store | null>(null);
 export function DemoProvider({ children, persistent = false }: { children: React.ReactNode; persistent?: boolean }) {
   const pathname = usePathname();
+  const reportPage = persistent && /\/(dashboard|history|all-requests|requests)(\/|$)/.test(pathname);
   const publicPage = pathname === "/login" || pathname.startsWith("/inicio/");
   const [ready, setReady] = useState(!persistent);
   const [loadError, setLoadError] = useState("");
@@ -77,6 +78,7 @@ export function DemoProvider({ children, persistent = false }: { children: React
     if (cartLoaded) window.sessionStorage.setItem("marcon-employee-cart", JSON.stringify(cart));
   }, [cart, cartLoaded]);
   const refresh = useCallback(async () => {
+    if(reportPage)return;
     const response = await fetch("/api/workspace", { cache: "no-store" });
     if (response.status === 401) { window.location.replace("/login"); return; }
     if (!response.ok) throw new Error("Não foi possível carregar os dados do MySQL.");
@@ -84,7 +86,7 @@ export function DemoProvider({ children, persistent = false }: { children: React
     setRequests(data.requests); setStock(data.stock); setBalances(data.balances);
     setMovements(data.movements); setTransfers(data.transfers); setReturns(data.returns); setStaff(data.staff);
     setReady(true); setLoadError("");
-  }, []);
+  }, [reportPage]);
   useEffect(() => {
     if (!persistent || publicPage) return;
     const timer = window.setTimeout(() => {
@@ -109,8 +111,8 @@ export function DemoProvider({ children, persistent = false }: { children: React
     await refresh();
     return result as Record<string, unknown>;
   }, [persistent, refresh]);
-  if (!publicPage && loadError) return <div className="app-loading" role="alert">{loadError} <button onClick={() => refresh().catch((error) => setLoadError(error.message))}>Tentar novamente</button></div>;
-  if (!publicPage && !ready) return <div className="app-loading" role="status">Carregando dados do sistema…</div>;
+  if (!publicPage && !reportPage && loadError) return <div className="app-loading" role="alert">{loadError} <button onClick={() => refresh().catch((error) => setLoadError(error.message))}>Tentar novamente</button></div>;
+  if (!publicPage && !reportPage && !ready) return <div className="app-loading" role="status">Carregando dados do sistema…</div>;
   return (
     <Context.Provider
       value={{

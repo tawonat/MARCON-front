@@ -17,12 +17,21 @@ export async function GET(
   }
   const { id } = await params;
   const item = databaseEnabled()
-    ? (await workspaceSnapshot(user)).stock.filter((part) => part.code === id || String(part.id) === id)
-      .map((part) => ({
-        id: part.code, name: part.name, category: "Peças", stock: part.quantity,
-        unit: "unidades", location: part.location, description: part.name,
-        specification: `QR/ID ${part.qrCode ?? part.code}`,
-      }))[0]
+    ? (await workspaceSnapshot(user)).stock
+        .filter((part) => part.code === id || String(part.id) === id)
+        .map((part) => ({
+          id: part.code,
+          name: part.name,
+          category: part.category,
+          stock: part.available ?? part.quantity,
+          unit: part.unit,
+          location:
+            part.locations
+              ?.map((l) => `${l.warehouse} / ${l.aisle} / ${l.shelf}`)
+              .join("; ") ?? part.location,
+          description: part.name,
+          specification: `QR/ID ${part.qrCode ?? part.code}`,
+        }))[0]
     : findCatalogItem(id);
   if (!item) {
     return NextResponse.json(
