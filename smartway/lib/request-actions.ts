@@ -1,7 +1,7 @@
 ﻿import type { PoolConnection } from "mysql2/promise";
 import type { ResultSetHeader } from "mysql2";
 import type { Account } from "./accounts";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { recordDeliveryPlan } from "./delivery-planning";
 import { ActionError, demand, integer, text, reason } from "./permissions";
 import {
@@ -41,6 +41,32 @@ export async function executeRequestAction(
     )
       throw new ActionError("Carrinho inválido.");
     const entries = a.entries as Record<string, unknown>[];
+    const requestKey = a.requestKey;
+    if (requestKey !== undefined) {
+      if (
+        typeof requestKey !== "string" ||
+        !/^[a-zA-Z0-9_-]{16,64}$/.test(requestKey)
+      )
+        throw new ActionError("Identificador de envio inválido.");
+      const hash = createHash("sha256")
+        .update(JSON.stringify(entries))
+        .digest("hex");
+      await c.execute(
+        "INSERT IGNORE INTO request_submissions(actor_id,request_key,payload_hash) VALUES(?,?,?)",
+        [actorId, requestKey, hash],
+      );
+      const submitted = await first(
+        c,
+        "SELECT payload_hash,result FROM request_submissions WHERE actor_id=? AND request_key=? FOR UPDATE",
+        [actorId, requestKey],
+      );
+      if (submitted.payload_hash !== hash)
+        throw new ActionError("Este envio já pertence a outro carrinho.", 409);
+      if (submitted.result)
+        return typeof submitted.result === "string"
+          ? JSON.parse(submitted.result)
+          : submitted.result;
+    }
     if (
       new Set(entries.map((e) => text(e.code, 64).toUpperCase())).size !==
       entries.length
@@ -81,7 +107,13 @@ export async function executeRequestAction(
         batch,
       });
     }
-    return { ids, batch };
+    const result = { ids, batch };
+    if (requestKey)
+      await c.execute(
+        "UPDATE request_submissions SET result=? WHERE actor_id=? AND request_key=?",
+        [JSON.stringify(result), actorId, requestKey],
+      );
+    return result;
   }
   const id = integer(a.id),
     lookup = await first(c, "SELECT part_id FROM requests WHERE id=?", [id]);
@@ -241,7 +273,12 @@ export async function executeRequestAction(
       );
       // Legacy/manual delivery confirmation still captures its planning decision atomically.
       if (!departure)
-        await recordDeliveryPlan(c, user, { action: "planDelivery", atDelivery: true }, id);
+        await recordDeliveryPlan(
+          c,
+          user,
+          { action: "planDelivery", atDelivery: true },
+          id,
+        );
       const reserved = await rows(
         c,
         "SELECT * FROM request_reservations WHERE request_id=? ORDER BY warehouse_id FOR UPDATE",

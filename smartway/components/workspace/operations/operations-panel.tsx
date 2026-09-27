@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Role } from "@/lib/workspace-routes";
 import type { DashboardReport, DetailRecord } from "@/lib/dashboard-report";
 import {
@@ -50,6 +51,23 @@ export function OperationsPanel({
 }) {
   const { runAction } = useDemoStore(),
     first = initialView(role, mode, dashboardView);
+  const urlParams = useSearchParams(),
+    jamesQuery = urlParams.get("james") === "1" ? urlParams.toString() : "";
+  const incoming = new URLSearchParams(jamesQuery);
+  const jamesFilters = Object.fromEntries(
+    [...incoming].filter(([k]) =>
+      [
+        "dashboard",
+        "from",
+        "to",
+        "block",
+        "code",
+        "warehouse",
+        "status",
+        "priority",
+      ].includes(k),
+    ),
+  );
   const [query, setQuery] = useState(() =>
       new URLSearchParams({
         ...(routePart && routePart !== "all"
@@ -60,6 +78,7 @@ export function OperationsPanel({
         dashboard: first,
         metric:
           first === "compra" || first === "estoque" ? "stock" : "requests",
+        ...jamesFilters,
       }).toString(),
     ),
     [report, setReport] = useState<DashboardReport | null>(null),
@@ -72,6 +91,15 @@ export function OperationsPanel({
     [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false);
   const resolve = useRef<((value: boolean) => void) | null>(null);
+  useEffect(() => {
+    if (!jamesQuery) return;
+    const timer = setTimeout(() => {
+      const q = new URLSearchParams(jamesQuery);
+      q.delete("james");
+      setQuery(q.toString());
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [jamesQuery]);
   const transferKeys = useRef<Record<string, string>>({});
   const view = (new URLSearchParams(query).get("dashboard") ||
     first) as DashboardView;

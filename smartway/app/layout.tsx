@@ -8,15 +8,32 @@ export const metadata: Metadata = {
   description: "Acesso ao portal Marcon e à gestão de materiais Smartway.",
 };
 
-export default function RootLayout({
+import { currentUser } from "@/lib/auth";
+import JamesAssistant from "@/components/james/JamesAssistant";
+
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const user = await currentUser();
+  const showJames = !!user;
   return (
     <html lang="pt-BR">
       <body>
-        <DemoProvider persistent={databaseEnabled()}>{children}</DemoProvider>
+        <DemoProvider
+          persistent={databaseEnabled()}
+          key={user?.id ?? "anonymous"}
+          accountId={user?.id}
+        >
+          {children}
+          {showJames && (
+            <JamesAssistant
+              userId={user.id}
+              key={`${user.id}:${user.role}:${user.block ?? ""}`}
+            />
+          )}
+        </DemoProvider>
       </body>
     </html>
   );

@@ -61,6 +61,17 @@ try {
       "INSERT INTO schema_migrations(version) VALUES ('003_logistics')",
     );
   }
+  const [submissions] = await connection.execute(
+    "SELECT version FROM schema_migrations WHERE version='004_request_submissions'",
+  );
+  if (!submissions.length) {
+    const { up } = await import("../db/migrations/004_request_submissions.mjs");
+    await up(connection);
+    await connection.execute(
+      "INSERT INTO schema_migrations(version) VALUES ('004_request_submissions')",
+    );
+  }
+  console.log("Migração 004_request_submissions aplicada.");
   console.log(
     "Migrações 001_initial, 002_operations e 003_logistics aplicadas.",
   );
