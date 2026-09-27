@@ -1,5 +1,6 @@
 ﻿"use client";
 import { useEffect, useRef, useState } from "react";
+import { MapViewport } from "./map-viewport";
 import {
   graphProblems,
   planStops,
@@ -384,87 +385,93 @@ export function MapEditor() {
         </section>
       )}
       {url ? (
-        <svg
-          className="ops-map"
-          viewBox="0 0 1000 700"
-          onClick={pointClick}
-          role="img"
-          aria-label="Editor visual da planta; pontos também editáveis nos campos abaixo"
-        >
-          <image
-            href={url}
-            width="1000"
-            height="700"
-            preserveAspectRatio="none"
-          />
-          {graph.walls.map((w, i) => (
-            <line
-              key={"w" + i}
-              x1={w.x1 * 1000}
-              y1={w.y1 * 700}
-              x2={w.x2 * 1000}
-              y2={w.y2 * 700}
-              stroke="#b42318"
-              strokeWidth="5"
+        <MapViewport>
+          <svg
+            className="ops-map"
+            viewBox="0 0 1000 700"
+            onClick={pointClick}
+            role="img"
+            aria-label="Editor visual da planta; pontos também editáveis nos campos abaixo"
+          >
+            <image
+              href={url}
+              width="1000"
+              height="700"
+              preserveAspectRatio="none"
             />
-          ))}
-          {graph.edges.map((e, i) => {
-            const a = graph.nodes.find((n) => n.id === e.from)!,
-              b = graph.nodes.find((n) => n.id === e.to)!;
-            return (
+            {graph.walls.map((w, i) => (
               <line
-                key={i}
-                x1={a.x * 1000}
-                y1={a.y * 700}
-                x2={b.x * 1000}
-                y2={b.y * 700}
-                stroke={e.blocked ? "#b42318" : "#16803e"}
-                strokeWidth="4"
-                strokeDasharray={e.blocked ? "8 6" : undefined}
+                key={"w" + i}
+                x1={w.x1 * 1000}
+                y1={w.y1 * 700}
+                x2={w.x2 * 1000}
+                y2={w.y2 * 700}
+                stroke="#b42318"
+                strokeWidth="5"
               />
-            );
-          })}
-          {route && (
-            <polyline
-              points={route.nodes
-                .map((id) => {
-                  const n = graph.nodes.find((n) => n.id === id)!;
-                  return `${n.x * 1000},${n.y * 700}`;
-                })
-                .join(" ")}
-              stroke="#164af0"
-              strokeWidth="7"
-              fill="none"
-            />
-          )}
-          {graph.nodes.map((n) => (
-            <g
-              key={n.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                nodeClick(n.id);
-              }}
-            >
-              <circle
-                cx={n.x * 1000}
-                cy={n.y * 700}
-                r={selected === n.id ? 12 : 9}
-                fill={selected === n.id || n.uncertain ? "#b96a00" : "#164af0"}
+            ))}
+            {graph.edges.map((e, i) => {
+              const a = graph.nodes.find((n) => n.id === e.from)!,
+                b = graph.nodes.find((n) => n.id === e.to)!;
+              return (
+                <line
+                  key={i}
+                  x1={a.x * 1000}
+                  y1={a.y * 700}
+                  x2={b.x * 1000}
+                  y2={b.y * 700}
+                  stroke={e.blocked ? "#b42318" : "#16803e"}
+                  strokeWidth="4"
+                  strokeDasharray={e.blocked ? "8 6" : undefined}
+                />
+              );
+            })}
+            {route && (
+              <polyline
+                className="route-path"
+                pathLength="1"
+                points={route.nodes
+                  .map((id) => {
+                    const n = graph.nodes.find((n) => n.id === id)!;
+                    return `${n.x * 1000},${n.y * 700}`;
+                  })
+                  .join(" ")}
+                stroke="#164af0"
+                strokeWidth="7"
+                fill="none"
               />
-              <text
-                x={n.x * 1000 + 12}
-                y={n.y * 700 - 12}
-                fontSize="16"
-                paintOrder="stroke"
-                stroke="white"
-                strokeWidth="4"
-                fill="#12254c"
+            )}
+            {graph.nodes.map((n) => (
+              <g
+                key={n.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nodeClick(n.id);
+                }}
               >
-                {n.label}
-              </text>
-            </g>
-          ))}
-        </svg>
+                <circle
+                  cx={n.x * 1000}
+                  cy={n.y * 700}
+                  r={selected === n.id ? 12 : 9}
+                  fill={
+                    selected === n.id || n.uncertain ? "#b96a00" : "#164af0"
+                  }
+                />
+                <text
+                  x={n.x * 1000 + 12}
+                  y={n.y * 700 - 12}
+                  fontSize="16"
+                  paintOrder="stroke"
+                  stroke="white"
+                  strokeWidth="4"
+                  fill="#12254c"
+                >
+                  {n.label}
+                </text>
+              </g>
+            ))}
+          </svg>
+        </MapViewport>
       ) : (
         <p>Envie uma planta ou abra uma versão abaixo.</p>
       )}

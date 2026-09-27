@@ -251,7 +251,10 @@ export async function dashboardReport(
   )
     throw new ActionError("Indicador fora do seu perfil.", 403);
   const pool = getPool(),
-    base = await operationsReport(user, f),
+    base = await operationsReport(user, {
+      ...f,
+      purpose: f.view === "compra" ? "purchase" : "distribution",
+    }),
     w = requestWhere(user, f);
   const [requestCounts] = await pool.execute<RowDataPacket[]>(
     `SELECT COUNT(*) requests,COALESCE(SUM(${open}),0) pending,COALESCE(SUM(${open} AND r.priority='Urgente'),0) urgent,COALESCE(SUM(r.status<>'Cancelada' AND (r.priority='Urgente' OR COALESCE(r.justification,'')<>'')),0) anomalies ${requestJoins} WHERE ${w.sql}`,
@@ -493,7 +496,8 @@ export async function dashboardReport(
       row: typeof row;
       transfer: (typeof base.transfers)[number] | null;
     }[] = transfers.map((transfer) => ({ action: "transfer", row, transfer }));
-    if (row.buy > 0) cards.push({ action: "buy", row, transfer: null });
+    if (row.buy > 0 && q.get("planning") !== "distribution")
+      cards.push({ action: "buy", row, transfer: null });
     if (!cards.length) cards.push({ action: "observe", row, transfer: null });
     return cards;
   });
@@ -504,7 +508,10 @@ export async function dashboardReport(
       decision === c.action ||
       (decision === "insufficient" &&
         (c.row.analysis.confidence === "Dados insuficientes" ||
-          !c.row.priceDate)),
+          (q.get("planning") === "distribution"
+            ? !c.row.distribution?.verified ||
+              !!c.row.distribution?.unmappedConsumption
+            : !c.row.priceDate))),
   );
   return {
     decisions: {
@@ -516,6 +523,7 @@ export async function dashboardReport(
         decisionPage * f.pageSize,
       ),
       transfers: proposals.filter((c) => c.action === "transfer").length,
+      purchases: proposals.filter((c) => c.action === "buy").length,
       criticalItems: new Set(
         rows
           .filter((r) => r.available < r.configuredMinimum)
@@ -523,7 +531,12 @@ export async function dashboardReport(
       ).size,
       awaitingReview: proposals.filter((c) => c.action !== "observe").length,
     },
-    title: dashboardTitles[f.view],
+    title:
+      q.get("planning") === "distribution"
+        ? "Recomendação de estoque"
+        : f.view === "compra"
+          ? "Compra preditiva"
+          : dashboardTitles[f.view],
     view: f.view,
     filters: f,
     scope,
@@ -614,7 +627,11 @@ export async function dashboardReport(
       source: "MySQL local MARCON; eventos efetivamente persistidos.",
       definitions: metrics.map((m) => m.label + ": " + m.definition),
       formulas: [
+        f.view === "compra"
+          ? "Compra: consumo observado no local da baixa, independente da posição dos blocos no mapa; mínimo e prazo de reposição."
+          : "Distribuição: somente baixas efetivas por bloco; demanda atribuída ao almoxarifado acessível mais próximo no mapa publicado. Sem acesso mapeado não há transferência automática sugerida.",
         "Disponível = físico - reservado.",
+        "Compra preserva também o mínimo total do item: eventual diferença entre mínimo total e soma dos mínimos locais é atribuída ao Central (ou primeiro local cadastrado).",
         "Compra = max(0, alvo - disponível - entradas confirmadas - transferência possível).",
         "Tempo médio = média de (entrega - criação) em horas, somente horários válidos.",
         "Preço = estimativa interna; data do evento de cadastro/preço, quando registrada.",

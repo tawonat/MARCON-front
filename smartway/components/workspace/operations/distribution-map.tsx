@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { shortestPath, type FacilityGraph, type Path } from "@/lib/routing";
 import { RouteSummary } from "./route-summary";
+import { MapViewport } from "./map-viewport";
 export function DistributionMap({
   version,
   from,
@@ -140,32 +141,37 @@ export function DistributionMap({
               Calcular caminho
             </button>
           </div>
-          <svg
-            className="ops-map"
-            viewBox="0 0 1000 700"
-            role="img"
-            aria-label="Planta publicada e percurso"
-          >
-            <image
-              href={"/api/maps?image=" + version}
-              width="1000"
-              height="700"
-              preserveAspectRatio="none"
-            />
-            {route && (
-              <polyline
-                points={route.nodes
-                  .map((id) => {
-                    const n = graph.nodes.find((n) => n.id === id)!;
-                    return `${n.x * 1000},${n.y * 700}`;
-                  })
-                  .join(" ")}
-                fill="none"
-                stroke="var(--blue)"
-                strokeWidth="6"
+          <MapViewport>
+            <svg
+              className="ops-map"
+              viewBox="0 0 1000 700"
+              role="img"
+              aria-label="Planta publicada e percurso"
+            >
+              <image
+                href={"/api/maps?image=" + version}
+                width="1000"
+                height="700"
+                preserveAspectRatio="none"
               />
-            )}
-          </svg>
+              {route && (
+                <polyline
+                  key={route.nodes.join("-")}
+                  className="route-path"
+                  pathLength="1"
+                  points={route.nodes
+                    .map((id) => {
+                      const n = graph.nodes.find((n) => n.id === id)!;
+                      return `${n.x * 1000},${n.y * 700}`;
+                    })
+                    .join(" ")}
+                  fill="none"
+                  stroke="var(--blue)"
+                  strokeWidth="6"
+                />
+              )}
+            </svg>
+          </MapViewport>
           {route && <RouteSummary graph={graph} route={route} />}
         </>
       )}

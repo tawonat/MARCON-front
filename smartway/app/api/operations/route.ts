@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@/lib/auth";
 import { databaseEnabled } from "@/lib/db";
-import { ActionError } from "@/lib/permissions";
+import { ActionError, demand } from "@/lib/permissions";
 import { operationsReport } from "@/lib/operations-report";
 export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
@@ -15,6 +15,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Faça login." }, { status: 401 });
   try {
     const q = request.nextUrl.searchParams;
+    if (q.has("planning")) {
+      demand(user, "planning");
+      const mode = q.get("planning");
+      if (!["purchase", "distribution"].includes(mode ?? ""))
+        throw new ActionError("Planejamento inválido.");
+      q.set("dashboard", mode === "purchase" ? "compra" : "estoque");
+      if (!q.has("decision"))
+        q.set("decision", mode === "purchase" ? "buy" : "transfer");
+      if (!q.has("metric")) q.set("metric", "stock");
+    }
     if (q.has("dashboard")) {
       const { dashboardReport } = await import("@/lib/dashboard-report");
       const format = q.get("format");

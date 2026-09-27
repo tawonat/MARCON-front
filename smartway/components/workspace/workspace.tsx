@@ -57,6 +57,8 @@ const roles: Record<
       { id: "dashboard", label: "Dashboard" },
       { id: "requisicoes", label: "Ver requisições" },
       { id: "mapa", label: "Planta e rotas" },
+      { id: "compra", label: "Compra preditiva" },
+      { id: "recomendacoes", label: "Recomendação de estoque" },
       { id: "funcionarios", label: "Funcionários" },
       { id: "historico", label: "Histórico" },
     ],
@@ -437,6 +439,9 @@ export default function Workspace({
   }
   return (
     <div className="shell">
+      <a className="workspace-skip" href="#workspace-content">
+        Ir para o conteúdo
+      </a>
       <div
         className={"overlay " + (drawerOpen ? "visible" : "")}
         onClick={() => setDrawerOpen(false)}
@@ -513,8 +518,11 @@ export default function Workspace({
             >
               <Menu size={22} />
             </button>
-            <span>
-              Área de trabalho <b>/</b> <strong>{active.label}</strong>
+            <span className="workspace-location">
+              <span>
+                Área de trabalho <b>/</b>{" "}
+              </span>
+              <strong>{active.label}</strong>
             </span>
           </div>
           <div className="role-control">
@@ -535,7 +543,7 @@ export default function Workspace({
             </form>
           </div>
         </header>
-        <main className="content">
+        <main className="content" id="workspace-content" tabIndex={-1}>
           {message && (
             <div className="notice" role="status">
               ✓ {message}

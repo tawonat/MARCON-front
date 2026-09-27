@@ -2,7 +2,12 @@ import { expect, test } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import mysql from "mysql2/promise";
 import { databaseConfig } from "../../lib/db-config.mjs";
-import { wakeCommand, explicitConfirmation } from "../../lib/james-voice";
+import {
+  wakeCommand,
+  explicitConfirmation,
+  speechText,
+  choiceIndex,
+} from "../../lib/james-voice";
 import { jamesPlan } from "../../lib/james-model";
 let server: Server;
 let mode = "ok";
@@ -48,11 +53,31 @@ test.beforeAll(async () => {
         { action: "add", query: a, quantity: 7, unit: "package" },
         { action: "add", query: b, quantity: 10, unit: "unit" },
         { action: "cart" },
+        ...(msg.includes("faça") ? [{ action: "review" }] : []),
       ];
     else if (msg.includes("troque"))
       steps = [{ action: "set", query: a, quantity: 5, unit: "package" }];
     else if (msg.includes("ambiguo"))
       steps = [{ action: "add", query: "James", quantity: 1, unit: "unit" }];
+    else if (msg.includes("exportar"))
+      steps = [
+        {
+          action: "export",
+          view: msg.includes("estoque") ? "estoque" : "requisicoes",
+          format: msg.includes("planilha") ? "xlsx" : "pdf",
+        },
+      ];
+    else if (msg.includes("acompanhe"))
+      steps = [
+        {
+          action: "requests",
+          filters: msg.includes("outro bloco")
+            ? { block: "Bloco B" }
+            : undefined,
+        },
+      ];
+    else if (msg.includes("abra recomendações"))
+      steps = [{ action: "navigate", view: "recomendacoes" }];
     else if (msg.includes("dashboard"))
       steps = [
         {
@@ -152,9 +177,19 @@ test("wake words and explicit confirmation never infer consent", () => {
     expect(wakeCommand(name + ", procure porcas")).toBe("procure porcas");
   expect(wakeCommand("conversa qualquer")).toBeNull();
   expect(wakeCommand("James")).toBe("");
+  expect(wakeCommand("Bom dia, Jhames")).toBe("Bom dia");
+  expect(wakeCommand("conversa ambiente, James, procure porcas")).toBe(
+    "procure porcas",
+  );
+  expect(choiceIndex("escolha a segunda")).toBe(1);
+  expect(choiceIndex("quero a terceira opção")).toBe(2);
+  expect(choiceIndex("não escolha a segunda")).toBeNull();
   expect(explicitConfirmation("Confirmar requisição")).toBe(true);
   expect(explicitConfirmation("sim")).toBe(false);
   expect(explicitConfirmation("não confirmar requisição")).toBe(false);
+  expect(speechText("14 un. 1 kg; 2 m. UN-001")).toBe(
+    "14 unidades. 1 quilograma; 2 metros. UN-001",
+  );
 });
 test("real cart, packages, correction, ambiguity, signed confirmation and single submission", async ({
   request,
@@ -242,8 +277,14 @@ test("real cart, packages, correction, ambiguity, signed confirmation and single
     expect(navigation.href).toMatch(
       /^\/(admin|warehouse|department-head)\/dashboard(?:\?|$)/,
     );
-    const filtered = await (await post({ message: "abra dashboard filtrado", cart: [] })).json();
-    expect(new URL(filtered.href, "http://localhost:3101").searchParams.get("priority")).toBe("Urgente");
+    const filtered = await (
+      await post({ message: "abra dashboard filtrado", cart: [] })
+    ).json();
+    expect(
+      new URL(filtered.href, "http://localhost:3101").searchParams.get(
+        "priority",
+      ),
+    ).toBe("Urgente");
     if (identity === "1002") {
       expect(
         (await post({ message: "dashboard fora do bloco", cart: [] })).status(),
@@ -257,6 +298,120 @@ test("real cart, packages, correction, ambiguity, signed confirmation and single
   expect(lastModel).not.toContain("NVIDIA_API_KEY");
   await request.post("/api/logout", { headers });
   expect((await post({ message: "oi", cart: [] })).status()).toBe(401);
+});
+
+test("operational tools: resolve ambiguity, chained review, authorized requests and real exports", async ({
+  request,
+}) => {
+  const headers = { origin: "http://localhost:3101" };
+  const post = (data: unknown) =>
+    request.post("/api/james/chat", { headers, data });
+  await request.post("/api/login", {
+    headers,
+    data: { identity: "1001", password: process.env.SEED_PASSWORD },
+  });
+  const ambiguous = await (
+    await post({ message: "item ambiguo", cart: [] })
+  ).json();
+  expect(ambiguous.clarificationToken).toBeTruthy();
+  expect(
+    (
+      await post({
+        mode: "confirm",
+        token: ambiguous.clarificationToken,
+        confirmation: "confirmar requisicao",
+      })
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await post({
+        message: "inventado",
+        cart: [],
+        clarificationToken: ambiguous.clarificationToken,
+      })
+    ).status(),
+  ).toBe(422);
+  const resolved = await (
+    await post({
+      message: a,
+      cart: [],
+      clarificationToken: ambiguous.clarificationToken,
+    })
+  ).json();
+  expect(resolved.cart[0]).toMatchObject({ code: a, quantity: 1 });
+  const ordinal = await (
+    await post({
+      message: "escolha a segunda",
+      cart: [],
+      clarificationToken: ambiguous.clarificationToken,
+    })
+  ).json();
+  expect(ordinal.cart[0].code).toBe(ambiguous.choices[1].code);
+  const chained = await (
+    await post({
+      message:
+        "James, coloque 7 caixas de parafusos e 10 porcas no carrinho, mostre o pedido e faça a requisição",
+      cart: [],
+    })
+  ).json();
+  expect(chained.cart.map((e: { quantity: number }) => e.quantity)).toEqual([
+    14, 10,
+  ]);
+  expect(chained.reply).toContain("justificativa");
+  expect(chained.confirmationToken).toBeUndefined();
+  const cancelled = await (
+    await post({ message: "cancele", cart: chained.cart })
+  ).json();
+  expect(cancelled.cancelled).toBe(true);
+  expect(cancelled.cart).toEqual(chained.cart);
+  const tracking = await (
+    await post({ message: "acompanhe minhas requisições", cart: [] })
+  ).json();
+  expect(Array.isArray(tracking.records)).toBe(true);
+  expect(tracking.dashboard.scope).toContain("1001");
+  const exported = await (
+    await post({ message: "exportar requisições", cart: [] })
+  ).json();
+  const file = await request.get(exported.exportHref);
+  expect(file.status()).toBe(200);
+  expect(file.headers()["content-type"]).toContain("application/pdf");
+  expect((await post({ message: "exportar estoque", cart: [] })).status()).toBe(
+    403,
+  );
+  expect(
+    (await post({ message: "abra recomendações", cart: [] })).status(),
+  ).toBe(403);
+  await request.post("/api/login", {
+    headers,
+    data: { identity: "1002", password: process.env.SEED_PASSWORD },
+  });
+  expect(
+    (await post({ message: "acompanhe outro bloco", cart: [] })).status(),
+  ).toBe(403);
+  expect(
+    (
+      await post({
+        message: a,
+        cart: [],
+        clarificationToken: ambiguous.clarificationToken,
+      })
+    ).status(),
+  ).toBe(403);
+  await request.post("/api/login", {
+    headers,
+    data: { identity: "1003", password: process.env.SEED_PASSWORD },
+  });
+  expect(
+    (await (await post({ message: "abra recomendações", cart: [] })).json())
+      .href,
+  ).toBe("/warehouse/recommendations");
+  const spreadsheet = await (
+    await post({ message: "exportar estoque em planilha", cart: [] })
+  ).json();
+  const xlsx = await request.get(spreadsheet.exportHref);
+  expect(xlsx.status()).toBe(200);
+  expect(xlsx.headers()["content-type"]).toContain("spreadsheetml");
 });
 
 test("pet preferences, contextual highlighting and safe placement", async ({
@@ -288,7 +443,9 @@ test("pet preferences, contextual highlighting and safe placement", async ({
     await page.setViewportSize({ width, height: 900 });
     await page.locator("[data-james-pet]").scrollIntoViewIfNeeded();
     await page.waitForTimeout(100);
-    await expect(page.getByRole("button", { name: "Abrir James" })).toBeInViewport();
+    await expect(
+      page.getByRole("button", { name: "Abrir James" }),
+    ).toBeInViewport();
     expect(
       await page.evaluate(() => {
         const p = document
@@ -325,8 +482,15 @@ test("pet preferences, contextual highlighting and safe placement", async ({
     page.getByLabel("Silenciar dicas", { exact: true }),
   ).not.toBeChecked();
   await page.getByRole("button", { name: "Fechar James" }).click();
-  const reportResponse = page.waitForResponse((r) => r.url().includes("/api/operations?") && r.url().includes("priority=Urgente") && r.status() === 200);
-  await page.goto("/department-head/dashboard?james=1&dashboard=bloco&priority=Urgente");
+  const reportResponse = page.waitForResponse(
+    (r) =>
+      r.url().includes("/api/operations?") &&
+      r.url().includes("priority=Urgente") &&
+      r.status() === 200,
+  );
+  await page.goto(
+    "/department-head/dashboard?james=1&dashboard=bloco&priority=Urgente",
+  );
   await reportResponse;
 });
 test("voice UI, wake, chained requests, cancel, local microphone cleanup and responsive controls", async ({
@@ -348,6 +512,7 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
         (
           window as unknown as { jamesRecognition: Recognition }
         ).jamesRecognition = this;
+        (this as unknown as { onstart?: () => void }).onstart?.();
       }
       abort() {
         document.documentElement.dataset.micStopped = "true";
@@ -401,6 +566,32 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("button", { name: "Ativar escuta" }).click();
+  await expect(page.getByRole("status")).toContainText("Ouvindo localmente");
+  await page.evaluate(() => {
+    const r = (
+      window as unknown as {
+        jamesRecognition: {
+          onsoundstart: () => void;
+          onresult: (e: unknown) => void;
+        };
+      }
+    ).jamesRecognition;
+    r.onsoundstart();
+    r.onresult({
+      resultIndex: 0,
+      results: {
+        length: 1,
+        0: { isFinal: false, 0: { transcript: "James, coloque sete caixas" } },
+      },
+    });
+  });
+  await expect(page.locator("[data-james-pet]")).toHaveAttribute(
+    "data-hearing",
+    "true",
+  );
+  await expect(
+    page.getByText("Você disse: James, coloque sete caixas"),
+  ).toBeVisible();
   const say = async (text: string) =>
     page.evaluate((text) => {
       const r = (
@@ -470,6 +661,12 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
   ).toBeNull();
   await page.getByRole("button", { name: "Interromper fala" }).click();
   await page.getByLabel("Ler respostas com voz local").uncheck();
+  await page
+    .getByRole("button", { name: "Minimizar e manter escuta nesta aba" })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "Abrir James" }).click();
+  await expect(page.getByRole("status")).toContainText("Ouvindo localmente");
   await page.setViewportSize({ width: 375, height: 812 });
   await page.screenshot({ path: "test-results-mysql/james-voice-mobile.png" });
   await page
@@ -478,6 +675,17 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
   expect(
     await page.evaluate(() => document.documentElement.dataset.micStopped),
   ).toBe("true");
+  await page.getByRole("button", { name: "Ativar escuta" }).click();
+  await page.evaluate(() =>
+    (
+      window as unknown as {
+        jamesRecognition: { onerror: (e: { error: string }) => void };
+      }
+    ).jamesRecognition.onerror({ error: "not-allowed" }),
+  );
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "not-allowed",
+  );
   await page.evaluate(() => {
     Object.defineProperty(window, "SpeechRecognition", { value: undefined });
     Object.defineProperty(window, "webkitSpeechRecognition", {
@@ -500,6 +708,55 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
   );
   expect(errors).toEqual([]);
 });
+test("chat buttons resolve ambiguity and download the real authorized report", async ({
+  page,
+}, info) => {
+  await page.request.post("/api/login", {
+    headers: { origin: "http://localhost:3101" },
+    data: { identity: "1001", password: process.env.SEED_PASSWORD },
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/employee/request");
+  await page.getByRole("button", { name: "Abrir James" }).click();
+  await page.getByLabel("Ler respostas com voz local").uncheck();
+  const input = page.getByLabel("Sua pergunta ou correção");
+  mode = "slow";
+  try {
+    await input.fill("item ambiguo");
+    await page.getByRole("button", { name: "Enviar", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("Pedido recebido");
+    await page.screenshot({ path: info.outputPath("processing-mobile.png") });
+    await page
+      .getByRole("button", {
+        name: `1. ${a} · Parafuso James ${suffix}`,
+        exact: true,
+      })
+      .click();
+    await expect(page.getByRole("log")).toContainText("1 un no carrinho");
+  } finally {
+    mode = "ok";
+  }
+  await input.fill("exportar requisições");
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("button", { name: "Baixar relatório", exact: true })
+    .click();
+  expect(await (await downloaded).failure()).toBeNull();
+  const voiceEquivalentDownload = page.waitForEvent("download");
+  await input.fill("baixar relatório");
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
+  expect(await (await voiceEquivalentDownload).failure()).toBeNull();
+  await input.fill("faca a requisicao");
+  await page.getByRole("button", { name: "Enviar", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Confirmar requisição", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath("confirmation-mobile.png") });
+  await page.getByRole("button", { name: "Cancelar envio" }).click();
+  await expect(page.getByRole("log")).toContainText("Envio cancelado");
+});
+
 test("slow model timeout and simultaneous command protection", async ({
   request,
 }) => {

@@ -1,8 +1,18 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 export type Dock = "right" | "left" | "inline";
-type Preferences = { still: boolean; quiet: boolean; dock: Dock };
-const defaults: Preferences = { still: true, quiet: false, dock: "right" };
+type Preferences = {
+  still: boolean;
+  quiet: boolean;
+  dock: Dock;
+  voice: boolean;
+};
+const defaults: Preferences = {
+  still: true,
+  quiet: false,
+  dock: "right",
+  voice: true,
+};
 export function useJamesPet(userId: string, path: string, open: boolean) {
   const [preferences, setPreferences] = useState(defaults),
     [dock, setDock] = useState<Dock>("inline"),
@@ -24,7 +34,11 @@ export function useJamesPet(userId: string, path: string, open: boolean) {
           typeof value.quiet === "boolean" &&
           ["right", "left", "inline"].includes(value.dock)
         )
-          setPreferences(value);
+          setPreferences({
+            ...defaults,
+            ...value,
+            voice: typeof value.voice === "boolean" ? value.voice : true,
+          });
       } catch {
         /* Ignore invalid preferences. */
       }
@@ -106,6 +120,10 @@ export function useJamesPet(userId: string, path: string, open: boolean) {
     window.addEventListener("scroll", activity, true);
     const position = (roam = false) => {
       const visual = window.visualViewport;
+      root.current?.toggleAttribute(
+        "data-compact",
+        (visual?.height || innerHeight) <= 500,
+      );
       root.current?.style.setProperty(
         "--james-visible-height",
         `${visual?.height || innerHeight}px`,
@@ -117,7 +135,7 @@ export function useJamesPet(userId: string, path: string, open: boolean) {
       if (open || document.hidden) return;
       const protectedElements = Array.from(
         document.querySelectorAll<HTMLElement>(
-          "button,a,input,select,textarea,table,form,[role=dialog],dialog[open]",
+          "button,a,input,select,textarea,table,form,article,.panel,.heading,[role=dialog],dialog[open]",
         ),
       ).filter(
         (e) => !e.closest("[data-james-pet]") && e.getClientRects().length,
@@ -160,29 +178,62 @@ export function useJamesPet(userId: string, path: string, open: boolean) {
       setDock(currentDock.current);
     };
     const check = () => position(false);
+    let frame = 0;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(check);
+    };
+    // New panels and dialogs can occupy a previously free corner without scrolling.
+    const observer = new MutationObserver((records) => {
+      if (
+        records.some(
+          (r) =>
+            !(
+              r.target instanceof Element &&
+              r.target.closest("[data-james-pet]")
+            ),
+        )
+      )
+        schedule();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    const visibility = () => {
+      root.current?.toggleAttribute("data-motion-paused", document.hidden);
+      if (!document.hidden) schedule();
+    };
     const first = setTimeout(check, 0);
     const timer = setInterval(() => position(true), 65000);
     window.addEventListener("resize", check);
-    window.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("scroll", schedule, { passive: true });
+    document.addEventListener("visibilitychange", visibility);
+    document.addEventListener("focusin", schedule);
     window.visualViewport?.addEventListener("resize", check);
     return () => {
       clearTimeout(first);
       clearInterval(timer);
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", visibility);
+      document.removeEventListener("focusin", schedule);
       window.removeEventListener("keydown", activity, true);
       window.removeEventListener("pointerdown", activity, true);
       window.removeEventListener("scroll", activity, true);
       window.removeEventListener("resize", check);
-      window.removeEventListener("scroll", check);
+      window.removeEventListener("scroll", schedule);
       window.visualViewport?.removeEventListener("resize", check);
     };
   }, [open, preferences, path, tip]);
-  const context = path.includes("dashboard")
-    ? "Use os filtros para conferir período e escopo antes de comparar indicadores."
-    : path.includes("request")
-      ? "Busque o material, confira a embalagem e revise o carrinho antes de enviar."
-      : path.includes("map")
-        ? "Revise caminhos e bloqueios antes de publicar a planta."
-        : "Posso orientar sobre esta tela. Nenhuma animação executa ações.";
+  const context = path.includes("recommendations")
+    ? "Confira o consumo dos blocos e a rota antes de confirmar uma transferência sugerida."
+    : path.includes("purchases")
+      ? "Revise consumo, mínimos e entradas confirmadas antes de decidir a compra."
+      : path.includes("dashboard")
+        ? "Use os filtros para conferir período e escopo antes de comparar indicadores."
+        : path.includes("request")
+          ? "Busque o material, confira a embalagem e revise o carrinho antes de enviar."
+          : path.includes("map")
+            ? "Revise caminhos e bloqueios antes de publicar a planta."
+            : "Posso orientar sobre esta tela. Nenhuma animação executa ações.";
   useEffect(() => {
     clearHighlight();
     const timer = setTimeout(() => {

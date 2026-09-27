@@ -167,6 +167,114 @@ test("logística real: sugestões, etapas concorrentes, rotas versionadas e saí
     expect(suggestion.evidence.consumption[0].quantity).toBeGreaterThan(0);
     expect(suggestion.benefit).toContain("estimada");
     expect(suggestion.confidence).toBeTruthy();
+    const planningQuery = `code=${code}&from=${from}&to=${to}`;
+    const distribution = await (
+      await staff.get(`/api/operations?planning=distribution&${planningQuery}`)
+    ).json();
+    const purchase = await (
+      await staff.get(`/api/operations?planning=purchase&${planningQuery}`)
+    ).json();
+    expect(distribution.title).toBe("Recomendação de estoque");
+    expect(purchase.title).toBe("Compra preditiva");
+    expect(
+      distribution.rows.find(
+        (r: { warehouse: string }) => r.warehouse === "Almoxarifado 1",
+      ).forecast,
+    ).toBeGreaterThan(0);
+    expect(
+      purchase.rows.find(
+        (r: { warehouse: string }) => r.warehouse === "Almoxarifado 1",
+      ).forecast,
+    ).toBe(0);
+    expect(
+      purchase.rows.find(
+        (r: { warehouse: string }) => r.warehouse === "Central",
+      ).forecast,
+    ).toBeGreaterThan(0);
+    expect(
+      distribution.decisions.cards.every(
+        (c: { action: string }) => c.action === "transfer",
+      ),
+    ).toBe(true);
+    for (const purpose of ["purchase", "distribution"]) {
+      expect(
+        (
+          await employee.get(`/api/operations?planning=${purpose}&format=xlsx`)
+        ).status(),
+      ).toBe(403);
+      for (const format of ["pdf", "xlsx"])
+        expect(
+          (
+            await staff.get(
+              `/api/operations?planning=${purpose}&${planningQuery}&format=${format}`,
+            )
+          ).status(),
+        ).toBe(200);
+    }
+    // Neither an unreviewed map nor blocked accesses may silently fall back to Central.
+    try {
+      for (const unavailable of [
+        { ...graph, reviewed: false },
+        { ...graph, edges: graph.edges.map((e) => ({ ...e, blocked: true })) },
+      ]) {
+        await pool.execute("UPDATE map_versions SET graph=? WHERE id=?", [
+          JSON.stringify(unavailable),
+          version1,
+        ]);
+        const missing = await (
+          await staff.get(
+            `/api/operations?planning=distribution&${planningQuery}`,
+          )
+        ).json();
+        expect(missing.transfers).toEqual([]);
+        const sameConsumption = await (
+          await staff.get(`/api/operations?planning=purchase&${planningQuery}`)
+        ).json();
+        expect(
+          sameConsumption.rows.map((r: { forecast: number }) => r.forecast),
+        ).toEqual(purchase.rows.map((r: { forecast: number }) => r.forecast));
+      }
+    } finally {
+      await pool.execute("UPDATE map_versions SET graph=? WHERE id=?", [
+        JSON.stringify(graph),
+        version1,
+      ]);
+    }
+    const noHistory = await (
+      await staff.get(
+        `/api/operations?planning=distribution&code=${code}&from=2000-01-01&to=2000-01-02`,
+      )
+    ).json();
+    expect(noHistory.transfers).toEqual([]);
+    try {
+      await pool.execute("UPDATE inventory SET quantity=0 WHERE part_id=?", [
+        part,
+      ]);
+      const shortage = await (
+        await staff.get(`/api/operations?planning=purchase&${planningQuery}`)
+      ).json();
+      expect(
+        shortage.rows.find(
+          (r: { warehouse: string }) => r.warehouse === "Central",
+        ).buy,
+      ).toBeGreaterThan(0);
+      const minimumOnly = await (
+        await staff.get(
+          `/api/operations?planning=purchase&code=${code}&from=2000-01-01&to=2000-01-02`,
+        )
+      ).json();
+      expect(
+        minimumOnly.rows.every(
+          (r: { buy: number; configuredMinimum: number; forecast: number }) =>
+            r.buy >= r.configuredMinimum && r.forecast === 0,
+        ),
+      ).toBe(true);
+    } finally {
+      await pool.execute(
+        "UPDATE inventory SET quantity=1000 WHERE part_id=? AND warehouse_id=?",
+        [part, central],
+      );
+    }
     const shortFrom = new Date(Date.now() - 5 * 86400000)
       .toISOString()
       .slice(0, 10);
@@ -195,7 +303,16 @@ test("logística real: sugestões, etapas concorrentes, rotas versionadas e saí
       data: { identity: "1003", password: process.env.SEED_PASSWORD },
     });
     await page.goto("/warehouse/dashboard?view=recomendacoes");
-    await expect(page.getByRole("region", { name: "Recomendação de estoque", exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/warehouse\/recommendations/);
+    await expect(
+      page.getByRole("navigation", { name: "Dashboards", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("region", {
+        name: "Recomendação de estoque",
+        exact: true,
+      }),
+    ).toBeVisible();
     await page.getByText("Filtros do relatório", { exact: true }).click();
     await page.getByLabel("Código do item", { exact: true }).fill(code);
     await page
@@ -205,13 +322,11 @@ test("logística real: sugestões, etapas concorrentes, rotas versionadas e saí
       name: "Recomendação de estoque",
       exact: true,
     });
-    const filter = recommendations.getByRole("combobox", { name: "Filtrar sugestões",
+    const filter = recommendations.getByRole("combobox", {
+      name: "Filtrar sugestões",
       exact: true,
     });
-    await filter.selectOption("buy");
-    await expect(recommendations.getByRole("status")).toContainText(
-      "Nenhuma sugestão",
-    );
+    await expect(filter.locator('option[value="buy"]')).toHaveCount(0);
     await filter.selectOption("insufficient");
     await expect(
       recommendations.locator(".decision-card").first(),

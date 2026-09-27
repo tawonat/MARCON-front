@@ -91,7 +91,12 @@ export type StockTarget = {
   incoming: number;
   capacity: number | null;
 };
-export function suggestTransfers(locations: StockTarget[]) {
+export function suggestTransfers(
+  locations: StockTarget[],
+  routeCost: (source: StockTarget, destination: StockTarget) => number = () =>
+    0,
+  eligible: (destination: StockTarget) => boolean = () => true,
+) {
   const supply = locations.map((l) => ({
     ...l,
     excess: Math.max(0, l.available - Math.max(l.target, l.minimum)),
@@ -110,6 +115,7 @@ export function suggestTransfers(locations: StockTarget[]) {
       b.incoming -
       (a.target - a.available - a.incoming),
   )) {
+    if (!eligible(dest)) continue;
     let need = Math.max(
       0,
       Math.min(
@@ -120,8 +126,16 @@ export function suggestTransfers(locations: StockTarget[]) {
         dest.incoming,
     );
     for (const source of supply
-      .filter((s) => s.code === dest.code && s.warehouse !== dest.warehouse)
-      .sort((a, b) => b.excess - a.excess)) {
+      .filter(
+        (s) =>
+          s.code === dest.code &&
+          s.warehouse !== dest.warehouse &&
+          Number.isFinite(routeCost(s, dest)),
+      )
+      .sort(
+        (a, b) =>
+          routeCost(a, dest) - routeCost(b, dest) || b.excess - a.excess,
+      )) {
       const q = Math.min(need, source.excess);
       if (q > 0) {
         result.push({

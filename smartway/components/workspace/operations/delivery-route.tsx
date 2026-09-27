@@ -4,6 +4,7 @@ import type { Request } from "@/lib/demo-data";
 import type { DeliveryPlan } from "@/lib/delivery-planning";
 import type { FacilityGraph } from "@/lib/routing";
 import { RouteSummary } from "./route-summary";
+import { MapViewport } from "./map-viewport";
 import { DashboardDialog } from "./dashboard-dialog";
 type History = {
   id: number;
@@ -135,35 +136,44 @@ export function DeliveryRoute({ request }: { request: Request }) {
           {data.graph && data.route && (
             <>
               <RouteSummary graph={data.graph} route={data.route} />
-              <svg
-                className="ops-map"
-                viewBox="0 0 1000 700"
-                role="img"
-                aria-label="Percurso de entrega"
-              >
-                <image
-                  href={`/api/maps?image=${data.mapVersion}`}
-                  width="1000"
-                  height="700"
-                  preserveAspectRatio="none"
-                />
-                <polyline
-                  fill="none"
-                  stroke="#1559db"
-                  strokeWidth="6"
-                  points={data.route.nodes
-                    .map((id) => {
-                      const n = data.graph!.nodes.find((n) => n.id === id)!;
-                      return `${n.x * 1000},${n.y * 700}`;
-                    })
-                    .join(" ")}
-                />
-              </svg>
+              <MapViewport>
+                <svg
+                  className="ops-map"
+                  viewBox="0 0 1000 700"
+                  role="img"
+                  aria-label="Percurso de entrega"
+                >
+                  <image
+                    href={`/api/maps?image=${data.mapVersion}`}
+                    width="1000"
+                    height="700"
+                    preserveAspectRatio="none"
+                  />
+                  <polyline
+                    className="route-path"
+                    pathLength="1"
+                    fill="none"
+                    stroke="#1559db"
+                    strokeWidth="6"
+                    points={data.route.nodes
+                      .map((id) => {
+                        const n = data.graph!.nodes.find((n) => n.id === id)!;
+                        return `${n.x * 1000},${n.y * 700}`;
+                      })
+                      .join(" ")}
+                  />
+                </svg>
+              </MapViewport>
             </>
           )}
           <button
             className="button primary"
-            disabled={busy || history[0]?.event === "Saída" || start !== data.start || JSON.stringify(destinations) !== JSON.stringify(data.destinations)}
+            disabled={
+              busy ||
+              history[0]?.event === "Saída" ||
+              start !== data.start ||
+              JSON.stringify(destinations) !== JSON.stringify(data.destinations)
+            }
             onClick={() => setConfirm(true)}
           >
             Registrar saída {data.route ? "com recálculo" : "manual"}

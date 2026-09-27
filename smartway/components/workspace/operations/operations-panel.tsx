@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { pathFor } from "@/lib/workspace-routes";
 import type { Role } from "@/lib/workspace-routes";
 import type { DashboardReport, DetailRecord } from "@/lib/dashboard-report";
 import {
@@ -51,8 +52,24 @@ export function OperationsPanel({
 }) {
   const { runAction } = useDemoStore(),
     first = initialView(role, mode, dashboardView);
+  const router = useRouter();
+  const planning =
+    mode === "compra"
+      ? "purchase"
+      : mode === "recomendacoes"
+        ? "distribution"
+        : null;
+  function reportQuery(value: string) {
+    const q = new URLSearchParams(value);
+    if (planning) {
+      q.delete("dashboard");
+      q.set("planning", planning);
+    }
+    return q.toString();
+  }
   const urlParams = useSearchParams(),
-    jamesQuery = urlParams.get("james") === "1" ? urlParams.toString() : "";
+    jamesQuery =
+      planning || urlParams.get("james") === "1" ? urlParams.toString() : "";
   const incoming = new URLSearchParams(jamesQuery);
   const jamesFilters = Object.fromEntries(
     [...incoming].filter(([k]) =>
@@ -79,6 +96,9 @@ export function OperationsPanel({
         metric:
           first === "compra" || first === "estoque" ? "stock" : "requests",
         ...jamesFilters,
+        ...(planning
+          ? { decision: planning === "purchase" ? "buy" : "transfer" }
+          : {}),
       }).toString(),
     ),
     [report, setReport] = useState<DashboardReport | null>(null),
@@ -92,21 +112,37 @@ export function OperationsPanel({
     [exporting, setExporting] = useState(false);
   const resolve = useRef<((value: boolean) => void) | null>(null);
   useEffect(() => {
+    const refresh = () => setRevision((v) => v + 1);
+    window.addEventListener("marcon:workspace-updated", refresh);
+    return () =>
+      window.removeEventListener("marcon:workspace-updated", refresh);
+  }, []);
+  useEffect(() => {
     if (!jamesQuery) return;
     const timer = setTimeout(() => {
       const q = new URLSearchParams(jamesQuery);
       q.delete("james");
+      if (planning) {
+        q.set("dashboard", first);
+        q.set("metric", "stock");
+        q.set("decision", planning === "purchase" ? "buy" : "transfer");
+      }
       setQuery(q.toString());
     }, 0);
     return () => clearTimeout(timer);
-  }, [jamesQuery]);
+  }, [jamesQuery, planning, first]);
   const transferKeys = useRef<Record<string, string>>({});
-  const view = (new URLSearchParams(query).get("dashboard") ||
-    first) as DashboardView;
-  const recommendationPage = mode === "recomendacoes" && view === "estoque";
+  const view = (
+    planning ? first : new URLSearchParams(query).get("dashboard") || first
+  ) as DashboardView;
   useEffect(() => {
     const c = new AbortController();
-    fetch("/api/operations?" + query, { signal: c.signal, cache: "no-store" })
+    const params = new URLSearchParams(query);
+    if (planning) {
+      params.delete("dashboard");
+      params.set("planning", planning);
+    }
+    fetch("/api/operations?" + params, { signal: c.signal, cache: "no-store" })
       .then(async (r) => {
         const body = await r.json();
         if (!r.ok) throw Error(body.error || "Falha ao carregar indicadores.");
@@ -121,7 +157,7 @@ export function OperationsPanel({
         }
       });
     return () => c.abort();
-  }, [query, revision]);
+  }, [query, revision, planning]);
   useEffect(
     () => () => {
       resolve.current?.(false);
@@ -168,7 +204,9 @@ export function OperationsPanel({
     setExporting(true);
     setError("");
     try {
-      const r = await fetch("/api/operations?" + query + "&format=" + format);
+      const r = await fetch(
+        "/api/operations?" + reportQuery(query) + "&format=" + format,
+      );
       if (!r.ok) {
         const b = await r.json();
         throw Error(b.error);
@@ -190,7 +228,7 @@ export function OperationsPanel({
       ? ["requisicoes"]
       : role === "lider"
         ? ["bloco", "requisicoes"]
-        : ["geral", "bloco", "estoque", "requisicoes", "compra"];
+        : ["geral", "bloco", "estoque", "requisicoes"];
   const ids: Record<DashboardView, Metric[]> = {
     geral: [
       "pending",
@@ -291,42 +329,57 @@ export function OperationsPanel({
   );
   return (
     <div className="dashboard-suite">
-      <nav className="dashboard-tabs" aria-label="Dashboards">
-        {views.map((v) => (
-          <button
-            key={v}
-            className={view === v ? "active" : ""}
-            aria-current={view === v ? "page" : undefined}
-            onClick={() => {
-              setSelected(null);
-              update({
-                dashboard: v,
-                metric: ["compra", "estoque"].includes(v)
-                  ? "stock"
-                  : "requests",
-                page: "1",
-                status: "",
-                priority: "",
-              });
-            }}
-          >
-            {v === "compra"
-              ? "Recomendação de compra"
-              : v === "geral"
-                ? "Geral"
-                : v === "bloco"
-                  ? "Por bloco"
-                  : v === "estoque"
-                    ? "Estoque"
-                    : "Requisições"}
-          </button>
-        ))}
-      </nav>
+      {!planning && (
+        <nav className="dashboard-tabs" aria-label="Dashboards">
+          {views.map((v) => (
+            <button
+              key={v}
+              className={view === v ? "active" : ""}
+              aria-current={view === v ? "page" : undefined}
+              onClick={() => {
+                setSelected(null);
+                update({
+                  dashboard: v,
+                  metric: ["compra", "estoque"].includes(v)
+                    ? "stock"
+                    : "requests",
+                  page: "1",
+                  status: "",
+                  priority: "",
+                });
+              }}
+            >
+              {v === "compra"
+                ? "Recomendação de compra"
+                : v === "geral"
+                  ? "Geral"
+                  : v === "bloco"
+                    ? "Por bloco"
+                    : v === "estoque"
+                      ? "Estoque"
+                      : "Requisições"}
+            </button>
+          ))}
+        </nav>
+      )}
       <section className="panel ops-panel">
         <div className="panel-head">
           <div>
-            <h1 className="dashboard-title">{dashboardTitles[view]}</h1>
-            <p>Indicadores do MySQL · {report?.scope ?? "Validando escopo"}</p>
+            <h1 className="dashboard-title">
+              {planning === "purchase"
+                ? "Compra preditiva"
+                : planning === "distribution"
+                  ? "Recomendação de estoque"
+                  : dashboardTitles[view]}
+            </h1>
+            <p>
+              {planning === "purchase"
+                ? "Revise compras por consumo efetivamente baixado, mínimos, prazo e entradas confirmadas."
+                : planning === "distribution"
+                  ? "Aproxime os materiais dos blocos que os consomem, usando caminhos do mapa publicado. Confirme toda transferência."
+                  : "Confira o período, compare os indicadores e abra os registros."}
+            </p>
+            <p>Escopo: {report?.scope ?? "Validando acesso"} · Fonte: MySQL</p>
           </div>
           <details
             className="dashboard-popover"
@@ -486,7 +539,7 @@ export function OperationsPanel({
               Período: {report.methodology.period} · Escopo: {report.scope} ·
               Atualização: {dates(report.generatedAt)}
             </p>
-            <details open={!recommendationPage}>
+            <details open={!planning}>
               <summary>Ver indicadores do período</summary>
               <div className="ops-metrics dashboard-metrics">
                 {displayed.map((m) => (
@@ -535,8 +588,9 @@ export function OperationsPanel({
       </section>
       {report && !loading && (
         <>
-          {recommendationPage && (
+          {planning && (
             <RecommendationCards
+              mode={planning}
               report={report}
               role={role}
               busy={busy}
@@ -544,7 +598,13 @@ export function OperationsPanel({
               onPage={(page) => update({ decisionPage: String(page) })}
               onCritical={() => openMetric("critical")}
               onBuy={(code, warehouse) =>
-                update({ dashboard: "compra", code, warehouse, page: "1" })
+                planning === "purchase"
+                  ? openMetric("buy")
+                  : router.push(
+                      pathFor(role, "compra") +
+                        "?" +
+                        new URLSearchParams({ code, warehouse }),
+                    )
               }
               onTransfer={(t) =>
                 void act(
@@ -560,9 +620,10 @@ export function OperationsPanel({
               }
             />
           )}
-          {["geral", "bloco", "estoque", "compra"].includes(view) && (
-            <DashboardCharts report={report} />
-          )}
+          {!planning &&
+            ["geral", "bloco", "estoque", "compra"].includes(view) && (
+              <DashboardCharts report={report} />
+            )}
           {view === "geral" && (
             <section className="panel ops-panel">
               <div className="panel-head">
@@ -622,8 +683,12 @@ export function OperationsPanel({
                   </p>
                 </div>
               </div>
-              <details className="decision-table" open={!recommendationPage}>
-                <summary>Ver tabela detalhada de estoque e previsão</summary>
+              <details className="decision-table" open={!planning}>
+                <summary>
+                  {planning
+                    ? "Ver tabela detalhada de estoque e previsão"
+                    : "Ver tabela detalhada de estoque"}
+                </summary>
                 <div
                   className="ops-scroll"
                   role="region"
@@ -641,10 +706,14 @@ export function OperationsPanel({
                           "Disponível",
                           "Mínimo",
                           "Movimentações",
-                          "Prazo / previsão",
-                          "Compra / transferência",
-                          "Preço e fonte",
-                          "Metodologia",
+                          ...(planning
+                            ? [
+                                "Prazo / previsão",
+                                "Compra / transferência",
+                                "Preço e fonte",
+                                "Metodologia",
+                              ]
+                            : []),
                         ].map((h) => (
                           <th key={h} scope="col">
                             {h}
@@ -668,9 +737,11 @@ export function OperationsPanel({
                           <td data-label="Disponível">{r.available}</td>
                           <td data-label="Mínimo">
                             {r.configuredMinimum}
-                            <small>
-                              Sugerido: {r.minimum} · alvo: {r.target}
-                            </small>
+                            {planning && (
+                              <small>
+                                Sugerido: {r.minimum} · alvo: {r.target}
+                              </small>
+                            )}
                           </td>
                           <td data-label="Movimentações">
                             Entradas: {r.entries}
@@ -679,54 +750,60 @@ export function OperationsPanel({
                             <br />
                             Devoluções: {r.returns}
                           </td>
-                          <td data-label="Prazo / previsão">
-                            {r.leadDays} dias / {r.forecast} {r.unit}
-                          </td>
-                          <td data-label="Compra / transferência">
-                            Comprar: {r.buy} {r.unit}
-                            <br />
-                            Transferir: {r.transfer} {r.unit}
-                            <small>
-                              Custo interno:{" "}
-                              {r.cost.toLocaleString("pt-BR", {
-                                style: "currency",
-                                currency: "BRL",
-                              })}
-                            </small>
-                          </td>
-                          <td data-label="Preço e fonte">
-                            {r.unitPrice === null
-                              ? "Indisponível"
-                              : r.unitPrice.toLocaleString("pt-BR", {
-                                  style: "currency",
-                                  currency: "BRL",
-                                })}
-                            <small>
-                              {r.priceLabel} · Data: {dates(r.priceDate)}
-                            </small>
-                          </td>
-                          <td data-label="Metodologia">
-                            <span className="dashboard-badge">
-                              {r.analysis.confidence}
-                            </span>
-                            <details>
-                              <summary>Explicar cálculo</summary>
-                              <p>
-                                {r.analysis.method} · {r.analysis.days} dias ·
-                                MAE{" "}
-                                {r.analysis.mae?.toFixed(2) ?? "não validado"} ·
-                                WAPE{" "}
-                                {r.analysis.wape === null
-                                  ? "não validado"
-                                  : (r.analysis.wape * 100).toFixed(1) + "%"}
-                              </p>
-                              <p>{r.analysis.reason}</p>
-                              <p>
-                                Compra = max(0, {r.target} − {r.available} −{" "}
-                                {r.incoming} − {r.transfer}) = {r.buy}.
-                              </p>
-                            </details>
-                          </td>
+                          {planning && (
+                            <>
+                              <td data-label="Prazo / previsão">
+                                {r.leadDays} dias / {r.forecast} {r.unit}
+                              </td>
+                              <td data-label="Compra / transferência">
+                                Comprar: {r.buy} {r.unit}
+                                <br />
+                                Transferir: {r.transfer} {r.unit}
+                                <small>
+                                  Custo interno:{" "}
+                                  {r.cost.toLocaleString("pt-BR", {
+                                    style: "currency",
+                                    currency: "BRL",
+                                  })}
+                                </small>
+                              </td>
+                              <td data-label="Preço e fonte">
+                                {r.unitPrice === null
+                                  ? "Indisponível"
+                                  : r.unitPrice.toLocaleString("pt-BR", {
+                                      style: "currency",
+                                      currency: "BRL",
+                                    })}
+                                <small>
+                                  {r.priceLabel} · Data: {dates(r.priceDate)}
+                                </small>
+                              </td>
+                              <td data-label="Metodologia">
+                                <span className="dashboard-badge">
+                                  {r.analysis.confidence}
+                                </span>
+                                <details>
+                                  <summary>Explicar cálculo</summary>
+                                  <p>
+                                    {r.analysis.method} · {r.analysis.days} dias
+                                    · MAE{" "}
+                                    {r.analysis.mae?.toFixed(2) ??
+                                      "não validado"}{" "}
+                                    · WAPE{" "}
+                                    {r.analysis.wape === null
+                                      ? "não validado"
+                                      : (r.analysis.wape * 100).toFixed(1) +
+                                        "%"}
+                                  </p>
+                                  <p>{r.analysis.reason}</p>
+                                  <p>
+                                    Compra = max(0, {r.target} − {r.available} −{" "}
+                                    {r.incoming} − {r.transfer}) = {r.buy}.
+                                  </p>
+                                </details>
+                              </td>
+                            </>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -747,7 +824,7 @@ export function OperationsPanel({
               </details>
             </section>
           )}
-          {!recommendationPage &&
+          {planning === "purchase" &&
             ["estoque", "requisicoes"].includes(view) &&
             can(role, "stock") && (
               <section className="panel ops-panel">

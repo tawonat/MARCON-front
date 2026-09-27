@@ -119,7 +119,7 @@ test("dashboard: escopos, filtros, paginação e exportações coerentes", async
     await Promise.all(contexts.map((c) => c.dispose()));
   }
 });
-test("cinco dashboards: larguras, paisagem, zoom, filtros, detalhes e estados", async ({
+test("quatro dashboards: larguras, paisagem, zoom, filtros, detalhes e estados", async ({
   page,
 }, info) => {
   test.setTimeout(240000);
@@ -133,13 +133,7 @@ test("cinco dashboards: larguras, paisagem, zoom, filtros, detalhes e estados", 
   ).toBe(200);
   await page.goto("/admin/dashboard");
   await expect(page.locator(".dashboard-context")).toBeVisible();
-  const names = [
-    "Geral",
-    "Por bloco",
-    "Estoque",
-    "Requisições",
-    "Recomendação de compra",
-  ];
+  const names = ["Geral", "Por bloco", "Estoque", "Requisições"];
   for (const name of names) {
     await page
       .getByRole("navigation", { name: "Dashboards", exact: true })
@@ -308,10 +302,7 @@ test("gráficos: série longa, amostra única, texto longo e confirmação acess
     .click();
   await expect(page.locator(".dashboard-chart circle")).toBeVisible();
   await page.unroute("**/api/operations?**");
-  await page
-    .getByRole("navigation", { name: "Dashboards", exact: true })
-    .getByRole("button", { name: "Recomendação de compra", exact: true })
-    .click();
+  await page.goto("/admin/purchases");
   await expect(page.locator(".dashboard-context")).toBeVisible();
   await page
     .getByRole("button", {

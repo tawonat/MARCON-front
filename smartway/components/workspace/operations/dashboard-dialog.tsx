@@ -15,6 +15,31 @@ export function DashboardDialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
+    if (!open) return;
+    const viewport = window.visualViewport;
+    const resize = () => {
+      ref.current?.style.setProperty(
+        "--dialog-height",
+        `${viewport?.height ?? innerHeight}px`,
+      );
+      ref.current?.style.setProperty(
+        "--dialog-top",
+        `${(viewport?.offsetTop ?? 0) + 12}px`,
+      );
+      ref.current?.style.setProperty(
+        "--dialog-bottom",
+        `${Math.max(0, innerHeight - (viewport?.height ?? innerHeight) - (viewport?.offsetTop ?? 0)) + 12}px`,
+      );
+    };
+    resize();
+    viewport?.addEventListener("resize", resize);
+    viewport?.addEventListener("scroll", resize);
+    return () => {
+      viewport?.removeEventListener("resize", resize);
+      viewport?.removeEventListener("scroll", resize);
+    };
+  }, [open]);
+  useEffect(() => {
     const dialog = ref.current;
     if (open && !dialog?.open) dialog?.showModal();
     if (!open && dialog?.open) dialog.close();

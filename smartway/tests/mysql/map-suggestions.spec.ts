@@ -73,6 +73,23 @@ test("OCR real local, revisão manual, publicação protegida e rotas sem atrave
     .locator(".ops-suggestion")
     .filter({ hasText: "#" + id + " ·" });
   await row.getByRole("button", { name: "Abrir versão", exact: true }).click();
+  await page.setViewportSize({ width: 320, height: 740 });
+  const zoom = page.getByRole("slider", { name: /Ampliação da planta/ });
+  await zoom.fill("200");
+  await expect(zoom).toHaveValue("200");
+  expect(
+    await page
+      .locator(".map-viewport-scroll")
+      .evaluate((e) => e.scrollWidth > e.clientWidth),
+  ).toBe(true);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(321);
+  await zoom.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(zoom).toHaveValue("225");
+  await page.getByRole("button", { name: "Ajustar à tela" }).click();
+  await expect(zoom).toHaveValue("100");
   await expect(
     page.getByLabel("Tipo do novo ponto").locator("option[value=shelf]"),
   ).toHaveCount(0);
@@ -83,7 +100,9 @@ test("OCR real local, revisão manual, publicação protegida e rotas sem atrave
     .getByRole("combobox", { name: /^Ponto selecionado/ })
     .selectOption(node.id);
   await page.getByLabel("Nome", { exact: true }).fill("Acesso revisado");
-  await page.getByRole("combobox", { name: "Tipo", exact: true }).selectOption("access");
+  await page
+    .getByRole("combobox", { name: "Tipo", exact: true })
+    .selectOption("access");
   await page
     .getByRole("button", { name: "Marcar ponto como revisado", exact: true })
     .click();
@@ -95,7 +114,11 @@ test("OCR real local, revisão manual, publicação protegida e rotas sem atrave
         () => document.documentElement.scrollWidth <= innerWidth + 1,
       ),
     ).toBeTruthy();
-    await page.screenshot({ path: `test-results-mysql/map-${width}.png`, fullPage: true, animations: "disabled" });
+    await page.screenshot({
+      path: `test-results-mysql/map-${width}.png`,
+      fullPage: true,
+      animations: "disabled",
+    });
   }
   await page
     .getByRole("button", { name: "Salvar nova versão", exact: true })

@@ -14,6 +14,7 @@ import {
 import { transferAction } from "./transfer-actions";
 import { requestActions, executeRequestAction } from "./request-actions";
 import type { ResultSetHeader } from "mysql2";
+import type { PoolConnection } from "mysql2/promise";
 export const inventoryActions = new Set([
   ...requestActions,
   "transfer",
@@ -33,8 +34,9 @@ export const inventoryActions = new Set([
 export async function executeInventoryAction(
   user: Account,
   a: Record<string, unknown>,
+  connection?: PoolConnection,
 ) {
-  return transaction(async (c) => {
+  const work = async (c: PoolConnection) => {
     const actor = await first(
       c,
       "SELECT id,block_id,sector FROM users WHERE employee_no=? AND active=TRUE",
@@ -422,5 +424,6 @@ export async function executeInventoryAction(
       return { ok: true };
     }
     throw new ActionError("Ação inválida.");
-  });
+  };
+  return connection ? work(connection) : transaction(work);
 }

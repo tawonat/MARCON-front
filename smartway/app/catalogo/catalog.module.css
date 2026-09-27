@@ -297,7 +297,7 @@
 }
 .chip,
 .chipActive {
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 15px;
   border: 1px solid #e1e5ef;
   border-radius: 50px;
@@ -720,8 +720,8 @@
 .stepper button {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border: 0;
   background: white;
   color: #1d419c;
@@ -759,9 +759,21 @@
   border-radius: 12px;
   background: #eef8f0;
   color: #17632e;
+  box-shadow: inset 0 1px #fff, 0 8px 24px #17632e12;
 }
 .successCard strong {
   font-size: 16px;
+}
+@media (prefers-reduced-motion: no-preference) and (update: fast) {
+  .successCard { animation: confirmation-enter 300ms ease-out both; }
+  @keyframes confirmation-enter { from { opacity: .3; transform: perspective(800px) rotateX(-5deg) translateY(8px); } to { opacity: 1; transform: none; } }
+}
+@media (max-width: 640px) {
+  .employeeFields input, .employeeFields select, .employeeFields textarea, .searchBox input { font-size: 16px; }
+}
+@media (max-width: 380px) {
+  .formActions { flex-direction: column; }
+  .formActions > button { width: 100%; min-height: 44px; }
 }
 .successCard p {
   margin: 5px 0;

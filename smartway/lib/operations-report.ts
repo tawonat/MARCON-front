@@ -4,9 +4,14 @@ import { getPool } from "./db";
 import type { RowDataPacket } from "mysql2";
 import { ActionError, can } from "./permissions";
 import { predict, suggestTransfers, type Forecast } from "./forecast";
-import { graphProblems, shortestPath, type FacilityGraph } from "./routing";
+import { graphProblems, type FacilityGraph } from "./routing";
 import { integrationStatus } from "./integrations/corporate";
+import {
+  nearestWarehouseForBlock,
+  warehouseDistance,
+} from "./distribution-location";
 export type ReportFilter = {
+  purpose?: "purchase" | "distribution";
   from?: string;
   to?: string;
   block?: string;
@@ -31,6 +36,7 @@ export type ReportRow = {
   available: number;
   minimum: number;
   configuredMinimum: number;
+  itemMinimum: number;
   target: number;
   forecast: number;
   buy: number;
@@ -41,6 +47,8 @@ export type ReportRow = {
   capacity: number | null;
   incoming: number;
   distribution?: {
+    verified: boolean;
+    unmappedConsumption: number;
     consumption: { block: string; quantity: number }[];
     proximity: string;
     pendingOutgoing: number;
@@ -101,6 +109,26 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
     : null;
   if (graph && (!graph.reviewed || graphProblems(graph).length)) graph = null;
   if (graph) graph.scaleCalibrated = graph.scaleCalibrated === true;
+  const locationCache = new Map<
+    string,
+    ReturnType<typeof nearestWarehouseForBlock>
+  >();
+  const costCache = new Map<string, number>();
+  function mappedCost(from: string, to: string) {
+    if (!graph) return filters.purpose === "purchase" ? 0 : Infinity;
+    const key = `${from}:${to}`;
+    if (!costCache.has(key)) {
+      const a = warehouses.find((w) => w.name === from),
+        b = warehouses.find((w) => w.name === to);
+      costCache.set(
+        key,
+        a && b
+          ? warehouseDistance(graph, Number(a.id), Number(b.id))
+          : Infinity,
+      );
+    }
+    return costCache.get(key)!;
+  }
   const [pendingTransfers] = can(user.role, "planning")
     ? await pool.query<RowDataPacket[]>(
         "SELECT part_id,source_warehouse_id,destination_warehouse_id,quantity,status FROM stock_transfers WHERE status IN ('Solicitada','Em trânsito')",
@@ -148,41 +176,50 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
       history = relevant.filter(
         (m) => m.kind === "saida" && m.date >= from && m.date <= endDay,
       );
-    function closest(blockId: number | null) {
-      const candidates = warehouses.filter(
-          (w) => Number(w.block_id) === blockId,
-        ),
-        fallback = candidates[0] ?? warehouses.find((w) => w.is_central);
-      if (!graph) return Number(fallback?.id);
-      const target = graph.nodes.find(
-        (n) =>
-          n.blockId === blockId &&
-          (n.kind === "block" || n.kind === "delivery"),
-      );
-      if (!target) return Number(fallback?.id);
-      const scored = warehouses
-        .map((w) => {
-          const node = graph.nodes.find((n) => n.warehouseId === Number(w.id));
-          return {
-            id: Number(w.id),
-            distance: node
-              ? (shortestPath(graph, node.id, target.id)?.cost ?? Infinity)
-              : Infinity,
-          };
-        })
-        .sort((a, b) => a.distance - b.distance);
-      return Number.isFinite(scored[0]?.distance)
-        ? scored[0].id
-        : Number(fallback?.id);
-    }
+    const locationIds = (p.locations ?? [])
+      .filter(
+        (l) =>
+          l.capacity === null ||
+          l.capacity === undefined ||
+          l.capacity > l.reserved,
+      )
+      .map((l) => l.warehouseId);
     const targetWarehouses = new Map(
       [
         ...new Set(
           history.map((m) => (m.block_id ? Number(m.block_id) : null)),
         ),
-      ].map((id) => [id, closest(id)]),
+      ].map((id) => {
+        const key = `${id}:${locationIds.join(",")}`;
+        if (!locationCache.has(key))
+          locationCache.set(
+            key,
+            nearestWarehouseForBlock(graph, id, locationIds),
+          );
+        return [id, locationCache.get(key)?.id];
+      }),
     );
+    const assignedWarehouse = (m: RowDataPacket) =>
+      filters.purpose === "purchase"
+        ? Number(m.warehouse_id)
+        : targetWarehouses.get(m.block_id ? Number(m.block_id) : null);
     for (const location of p.locations ?? []) {
+      const minimumGap = Math.max(
+        0,
+        p.minimum - (p.locations ?? []).reduce((s, l) => s + l.minimum, 0),
+      );
+      const minimumOwner =
+        (p.locations ?? []).find((l) =>
+          warehouses.some(
+            (w) => Number(w.id) === l.warehouseId && w.is_central,
+          ),
+        ) ?? p.locations?.[0];
+      const forecastMinimum =
+        location.minimum +
+        (filters.purpose === "purchase" &&
+        minimumOwner?.warehouseId === location.warehouseId
+          ? minimumGap
+          : 0);
       const daily = Array.from({ length: days }, (_, i) => {
         const day = new Date(Date.parse(endDay) - (days - 1 - i) * 86400000)
           .toISOString()
@@ -190,16 +227,14 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
         return history
           .filter(
             (m) =>
-              m.date === day &&
-              targetWarehouses.get(m.block_id ? Number(m.block_id) : null) ===
-                location.warehouseId,
+              m.date === day && assignedWarehouse(m) === location.warehouseId,
           )
           .reduce((s, m) => s + Number(m.quantity), 0);
       });
       const forecast = predict(
           daily,
           p.leadDays,
-          location.minimum,
+          forecastMinimum,
           p.criticality,
         ),
         target = Math.max(
@@ -233,26 +268,37 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
         .reduce((s, r) => s + Number(r.quantity), 0);
       reportRows.push({
         distribution: {
+          verified:
+            !!graph &&
+            history.some((m) => assignedWarehouse(m) === location.warehouseId),
+          unmappedConsumption: history
+            .filter(
+              (m) =>
+                !targetWarehouses.get(m.block_id ? Number(m.block_id) : null),
+            )
+            .reduce((s, m) => s + Number(m.quantity), 0),
           consumption: [
             ...new Set(
               history
-                .filter(
-                  (m) =>
-                    targetWarehouses.get(
-                      m.block_id ? Number(m.block_id) : null,
-                    ) === location.warehouseId,
-                )
+                .filter((m) => assignedWarehouse(m) === location.warehouseId)
                 .map((m) => String(m.block ?? "Sem bloco")),
             ),
           ].map((block) => ({
             block,
             quantity: history
-              .filter((m) => String(m.block ?? "Sem bloco") === block)
+              .filter(
+                (m) =>
+                  String(m.block ?? "Sem bloco") === block &&
+                  assignedWarehouse(m) === location.warehouseId,
+              )
               .reduce((s, m) => s + Number(m.quantity), 0),
           })),
-          proximity: graph
-            ? `Grafo publicado #${published[0].id}; menor custo praticável (${graph.scaleCalibrated ? "metros" : "geometria estimada"}); sem ligação, vínculo do bloco ou Central.`
-            : "Sem mapa válido: vínculo do bloco ou Central; proximidade física não comprovada.",
+          proximity:
+            filters.purpose === "purchase"
+              ? "Compra baseada nas baixas efetivas do próprio local, sem redistribuir consumo pelo mapa."
+              : graph
+                ? `Grafo publicado #${published[0].id}; menor custo praticável (${graph.scaleCalibrated ? "escala calibrada" : "geometria estimada"}). Blocos sem acesso mapeado não geram distribuição automática.`
+                : "Sem mapa válido publicado: distribuição por proximidade indisponível. Mapeie os blocos, almoxarifados e caminhos; operação manual disponível.",
           pendingOutgoing: pendingTransfers
             .filter(
               (t) =>
@@ -289,6 +335,7 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
         available: location.available,
         minimum: forecast.minimum,
         configuredMinimum: location.minimum,
+        itemMinimum: p.minimum,
         target,
         forecast: Math.ceil(forecast.daily * p.leadDays),
         buy: can(user.role, "planning")
@@ -318,6 +365,12 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
           capacity: r.capacity,
           reserved: r.reserved + (r.distribution?.pendingOutgoing ?? 0),
         })),
+        (source, dest) => mappedCost(source.warehouse, dest.warehouse),
+        (dest) =>
+          filters.purpose === "purchase" ||
+          !!reportRows.find(
+            (r) => r.code === dest.code && r.warehouse === dest.warehouse,
+          )?.distribution?.verified,
       ).map((t) => {
         const source = reportRows.find(
           (r) => r.code === t.code && r.warehouse === t.from,
@@ -327,6 +380,10 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
         )!;
         return {
           ...t,
+          reason:
+            filters.purpose === "purchase"
+              ? t.reason
+              : "Destino acessível mais próximo dos blocos consumidores; transferir somente o excesso acima do mínimo e alvo da origem.",
           confidence: dest.analysis.confidence,
           benefit:
             dest.analysis.daily > 0
@@ -418,7 +475,7 @@ export async function operationsReport(user: Account, filters: ReportFilter) {
       deliveryTimeNote:
         "Desde a data de criação; registros legados sem horário de entrega são excluídos.",
     },
-    mapVersion: published[0]?.id ?? null,
+    mapVersion: graph ? (published[0]?.id ?? null) : null,
     integrations: integrationStatus,
   };
 }

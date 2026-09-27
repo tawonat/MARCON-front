@@ -14,6 +14,7 @@ export async function GET() {
       ? json({
           authenticated: true,
           userId: user.id,
+          role: user.role,
           provider: process.env.JAMES_PROVIDER || "nvidia",
         })
       : json({ error: "Faca login." }, 401);

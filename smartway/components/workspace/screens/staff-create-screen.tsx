@@ -250,8 +250,8 @@ export function StaffCreateScreen() {
         <ArrowLeft size={18} /> Voltar para usuários
       </button>
       <div className="section-heading-actions">
-        <div className="page-heading">
-          <span>ADMINISTRAÇÃO</span>
+        <div className="page-heading heading">
+          <p className="kicker">ADMINISTRAÇÃO</p>
           <h1>Novo usuário</h1>
           <p>
             Cadastre a conta primeiro. O acesso facial será oferecido depois,

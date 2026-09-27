@@ -154,9 +154,11 @@ export function DemoProvider({
         refresh().catch(() => undefined);
     };
     window.addEventListener("focus", update);
+    window.addEventListener("marcon:workspace-updated", update);
     const interval = window.setInterval(update, 30_000);
     return () => {
       window.removeEventListener("focus", update);
+      window.removeEventListener("marcon:workspace-updated", update);
       window.clearInterval(interval);
     };
   }, [persistent, refresh, publicPage]);

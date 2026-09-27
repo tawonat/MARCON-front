@@ -12,6 +12,7 @@ test("NVIDIA real: authenticated catalog, correction and unique request", async 
   const pool = mysql.createPool(databaseConfig()),
     code = "JLIVE-" + Date.now().toString(36).toUpperCase();
   let id = 0,
+    nutId = 0,
     token = "";
   const headers = { origin: "http://localhost:3101" };
   try {
@@ -20,6 +21,15 @@ test("NVIDIA real: authenticated catalog, correction and unique request", async 
       [code, code, "Parafuso teste James real", "Teste"],
     );
     id = r.insertId;
+    const [nut] = await pool.execute<mysql.ResultSetHeader>(
+      "INSERT INTO parts(code,qr_code,name,location,pack_size) VALUES(?,?,?,?,1)",
+      [code + "-N", code + "-N", "Porca teste James real", "Teste"],
+    );
+    nutId = nut.insertId;
+    await pool.execute(
+      "INSERT INTO inventory(part_id,warehouse_id,quantity) SELECT ?,id,100 FROM warehouses WHERE is_central=TRUE",
+      [nutId],
+    );
     await pool.execute(
       "INSERT INTO inventory(part_id,warehouse_id,quantity) SELECT ?,id,100 FROM warehouses WHERE is_central=TRUE",
       [id],
@@ -42,15 +52,28 @@ test("NVIDIA real: authenticated catalog, correction and unique request", async 
       return response.json();
     };
     let data = await send({
-      message: `Adicione 7 caixas do item codigo ${code} e mostre meu carrinho`,
+      message: `James, coloque 7 caixas dos parafusos código ${code} e 10 porcas código ${code}-N no carrinho, mostre o pedido e faça a requisição`,
       cart: [],
     });
-    expect(data.cart).toHaveLength(1);
-    expect(data.cart[0].quantity).toBe(14);
+    expect(
+      data.cart,
+      JSON.stringify({ reply: data.reply, choices: data.choices }),
+    ).toHaveLength(2);
+    expect(
+      data.cart.find((e: { code: string }) => e.code === code).quantity,
+    ).toBe(14);
+    expect(
+      data.cart.find((e: { code: string }) => e.code === code + "-N").quantity,
+    ).toBe(10);
+    expect(data.confirmationToken).toBeUndefined();
     data = await send({ message: "Troque as caixas para 5", cart: data.cart });
     expect(
-      data.cart[0].quantity,
+      data.cart.find((e: { code: string }) => e.code === code).quantity,
       JSON.stringify({ reply: data.reply, choices: data.choices }),
+    ).toBe(10);
+    data = await send({ message: "Troque para 5 caixas", cart: data.cart });
+    expect(
+      data.cart.find((e: { code: string }) => e.code === code).quantity,
     ).toBe(10);
     data = await send({ message: "faca a requisicao", cart: data.cart });
     token = data.confirmationToken;
@@ -79,14 +102,14 @@ test("NVIDIA real: authenticated catalog, correction and unique request", async 
         [key],
       );
     }
-    if (id) {
+    for (const partId of [id, nutId].filter(Boolean)) {
       await pool.execute(
         "DELETE FROM audit_log WHERE entity_type='request' AND entity_id IN(SELECT id FROM requests WHERE part_id=?)",
-        [id],
+        [partId],
       );
-      await pool.execute("DELETE FROM requests WHERE part_id=?", [id]);
-      await pool.execute("DELETE FROM inventory WHERE part_id=?", [id]);
-      await pool.execute("DELETE FROM parts WHERE id=?", [id]);
+      await pool.execute("DELETE FROM requests WHERE part_id=?", [partId]);
+      await pool.execute("DELETE FROM inventory WHERE part_id=?", [partId]);
+      await pool.execute("DELETE FROM parts WHERE id=?", [partId]);
     }
     await pool.end();
   }

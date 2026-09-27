@@ -9,6 +9,7 @@ const money = (value: number | null) =>
     ? "Preço não informado"
     : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 export function RecommendationCards({
+  mode = "distribution",
   report,
   role,
   busy,
@@ -18,6 +19,7 @@ export function RecommendationCards({
   onBuy,
   onCritical,
 }: {
+  mode?: "purchase" | "distribution";
   report: DashboardReport;
   role: Role;
   busy: boolean;
@@ -32,11 +34,17 @@ export function RecommendationCards({
   return (
     <section
       className="panel ops-panel decision-panel"
-      aria-label="Recomendação de estoque"
+      aria-label={
+        mode === "purchase" ? "Compras sugeridas" : "Recomendação de estoque"
+      }
     >
       <div className="panel-head">
         <div>
-          <h2>Recomendação de estoque</h2>
+          <h2>
+            {mode === "purchase"
+              ? "Compras sugeridas"
+              : "Recomendação de estoque"}
+          </h2>
           <p>
             Revise a necessidade e escolha a ação. Sugestões não movimentam
             saldo.
@@ -44,9 +52,15 @@ export function RecommendationCards({
         </div>
       </div>
       <div className="decision-totals">
-        <button onClick={() => onFilter("transfer")}>
-          <strong>{d.transfers}</strong>
-          <span>Transferências recomendadas</span>
+        <button
+          onClick={() => onFilter(mode === "purchase" ? "buy" : "transfer")}
+        >
+          <strong>{mode === "purchase" ? d.purchases : d.transfers}</strong>
+          <span>
+            {mode === "purchase"
+              ? "Posições com compra recomendada"
+              : "Transferências recomendadas"}
+          </span>
         </button>
         <button onClick={onCritical}>
           <strong>{d.criticalItems}</strong>
@@ -70,14 +84,27 @@ export function RecommendationCards({
         Filtrar sugestões
         <select value={d.filter} onChange={(e) => onFilter(e.target.value)}>
           <option value="action">Ação necessária</option>
-          <option value="transfer">Transferir</option>
-          <option value="buy">Comprar</option>
-          <option value="analysis">Em análise / em andamento</option>
+          {mode === "distribution" && (
+            <option value="transfer">Transferir</option>
+          )}
+          {mode === "purchase" && <option value="buy">Comprar</option>}
+          {mode === "distribution" && (
+            <option value="analysis">Em análise / em andamento</option>
+          )}
           <option value="insufficient">Sem dados suficientes</option>
-          <option value="history">Histórico</option>
+          {mode === "distribution" && (
+            <option value="history">Histórico</option>
+          )}
           <option value="all">Todas as posições</option>
         </select>
       </label>
+      {mode === "distribution" && (
+        <p role="status">
+          {report.mapVersion
+            ? `Mapa publicado #${report.mapVersion}. Consumo sem vínculo ou caminho válido não gera transferência por proximidade.`
+            : "Publique um mapa com blocos, almoxarifados e caminhos revisados para obter recomendações por proximidade. Sem mapa válido, use a movimentação manual."}
+        </p>
+      )}
       {archived ? (
         <TransferQueue
           key={`${d.filter}:${report.filters.code}:${report.filters.warehouse}:${report.filters.block}:${report.filters.from}:${report.filters.to}`}
@@ -108,8 +135,9 @@ export function RecommendationCards({
                   <p>
                     {r.code} ·{" "}
                     <strong>
-                      {t?.quantity ?? r.buy} {r.unit}
-                      {action === "observe" ? " a comprar" : " sugeridos"}
+                      {action === "observe" && mode === "distribution"
+                        ? "Sem transferência sugerida"
+                        : `${t?.quantity ?? r.buy} ${r.unit}${action === "observe" ? " a comprar" : " sugeridos"}`}
                     </strong>
                   </p>
                 </header>
@@ -176,12 +204,23 @@ export function RecommendationCards({
                   {r.analysis.confidence === "Dados insuficientes" &&
                     `São ${r.analysis.days} dias observáveis; não há histórico suficiente para validar a previsão. `}
                   {!r.priceDate && "Falta data verificável do preço. "}
-                  {!report.mapVersion &&
+                  {mode === "distribution" &&
+                    !report.mapVersion &&
                     "Falta mapa publicado válido para comprovar proximidade e rota."}
                 </p>
                 <details className="decision-calculation">
                   <summary>Ver cálculo e dados</summary>
                   <dl>
+                    {mode === "distribution" && (
+                      <>
+                        <dt>Consumo sem acesso mapeado</dt>
+                        <dd>
+                          {r.distribution?.unmappedConsumption ?? 0} {r.unit}{" "}
+                          neste item. Vincule os blocos e locais no mapa para
+                          incluir essas retiradas.
+                        </dd>
+                      </>
+                    )}
                     <dt>Período e atualização</dt>
                     <dd>
                       {report.methodology.period} · {report.generatedAt}
@@ -197,6 +236,8 @@ export function RecommendationCards({
                       Físico: {r.physical}; reservado: {r.reserved}; disponível:{" "}
                       {r.available}; mínimo sugerido: {r.minimum}; alvo:{" "}
                       {r.target} {r.unit}.
+                      {mode === "purchase" &&
+                        ` Mínimo cadastrado do item no conjunto dos locais: ${r.itemMinimum} ${r.unit}.`}
                     </dd>
                     <dt>Previsão e prazo</dt>
                     <dd>

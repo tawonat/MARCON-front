@@ -39,6 +39,7 @@ export function TransferQueue({
     [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
+    [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Transfer | null>(null),
     [code, setCode] = useState(""),
@@ -90,6 +91,13 @@ export function TransferQueue({
         confirmedQuantity: Number(quantity),
         reason: "Solicitação cancelada pelo responsável",
       });
+      setMessage(
+        cancel
+          ? "Solicitação cancelada."
+          : selected.status === "Solicitada"
+            ? "Saída confirmada. Próximo passo: conferir o recebimento no destino."
+            : "Recebimento confirmado. Transferência concluída.",
+      );
       setSelected(null);
       setRevision((v) => v + 1);
     } catch (e) {
@@ -127,6 +135,7 @@ export function TransferQueue({
         Atualizar transferências
       </button>
       {loading && <p role="status">Carregando transferências…</p>}
+      {message && <p role="status">{message}</p>}
       {error && !selected && <p role="alert">{error}</p>}
       {!loading && !items.length && <p>Nenhuma transferência nesta página.</p>}
       {items.map((t) => (
@@ -140,6 +149,32 @@ export function TransferQueue({
               <br />
               {t.reason}
             </p>
+            <ol
+              className="workflow-steps"
+              aria-label={`Etapas da transferência ${t.id}`}
+            >
+              <li className="complete">
+                Solicitada<small>{t.created_at}</small>
+              </li>
+              <li className={t.shipped_at ? "complete" : ""}>
+                Saída confirmada
+                <small>
+                  {t.shipped_at ??
+                    (t.status === "Cancelada"
+                      ? "Não realizada"
+                      : "Aguardando conferência")}
+                </small>
+              </li>
+              <li className={t.received_at ? "complete" : ""}>
+                Recebimento confirmado
+                <small>
+                  {t.received_at ??
+                    (t.status === "Cancelada"
+                      ? "Não realizado"
+                      : "Aguardando chegada")}
+                </small>
+              </li>
+            </ol>
             <details>
               <summary>Responsáveis e horários</summary>
               <p>
