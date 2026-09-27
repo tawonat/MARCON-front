@@ -55,7 +55,7 @@
   align-items: center;
   padding: 20px;
   padding-right: 104px;
-  min-height: 104px;
+  min-height: 118px;
   border-bottom: 1px solid #dbe3f4;
 }
 .panel h2 {
@@ -74,21 +74,12 @@
   display: grid;
   place-items: center;
   width: 80px;
-  height: 72px;
+  height: 92px;
   border-radius: 20px;
-  background: linear-gradient(145deg, #fff, #eef2fb);
-  box-shadow:
-    inset 0 1px 2px white,
-    0 8px 16px #102e6629;
+  background: transparent;
   transform: perspective(600px) rotateY(-8deg);
   transform-style: preserve-3d;
   isolation: isolate;
-  background: radial-gradient(
-    circle at var(--light-x, 25%) var(--light-y, 10%),
-    #fff 0%,
-    #edf3ff 60%,
-    #d4dff5 100%
-  );
 }
 .symbol > span {
   max-width: 68px;
@@ -259,6 +250,15 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.privacy {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.privacy summary {
+  cursor: pointer;
+  padding-block: 8px;
+  min-height: 40px;
+}
 .voiceFallback p {
   margin: 0 0 8px;
 }
@@ -346,6 +346,8 @@
   .symbol {
     height: 50px;
     top: 6px;
+    transform: scale(0.55);
+    transform-origin: top right;
   }
   .panel form > small {
     display: none;
@@ -456,6 +458,11 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block: 80px;
+}
+.root[data-compact] .symbol {
+  transform: scale(0.55) !important;
+  transform-origin: top right;
+  top: 6px;
 }
 .root[data-compact] .panel header {
   position: sticky;

@@ -203,7 +203,7 @@ test("real cart, packages, correction, ambiguity, signed confirmation and single
     headers,
   });
   let r = await post({
-    message: "adicione 7 caixas de parafusos e 10 porcas; mostre meu carrinho",
+    message: `adicione 7 caixas do c?digo ${a} e 10 unidades do c?digo ${b}; mostre meu carrinho`,
     cart: [],
   });
   expect(r.status(), await r.text()).toBe(200);
@@ -605,7 +605,7 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
       });
     }, text);
   await say(
-    "Jhames, adicione 7 caixas de parafusos e 10 porcas; mostre meu carrinho",
+    `Jhames, adicione 7 caixas do c?digo ${a} e 10 unidades do c?digo ${b}; mostre meu carrinho`,
   );
   await expect(page.getByText("Carrinho revisado")).toBeVisible();
   await say("troque as caixas para 5");

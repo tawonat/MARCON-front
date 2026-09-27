@@ -1,5 +1,6 @@
 import { ActionError } from "./permissions";
 import { parseJamesOperation, type JamesOperation } from "./james-operations";
+import { beginJamesForm } from "./james-forms";
 export type JamesStep = {
   action:
     | "add"
@@ -14,6 +15,7 @@ export type JamesStep = {
     | "export"
     | "chat"
     | "operation"
+    | "form"
     | "help"
     | "justify";
   query?: string;
@@ -38,6 +40,7 @@ export async function jamesPlan(
       role: "system",
       content:
         system +
+        " Para iniciar uma tarefa com campos faltantes use action form, view: transfer,stockEntry,adjustStock,registerReturn,inspectReturn,confirmInbound,cancelInbound,receiveInbound,dispatchTransfer,receiveTransfer. O formulario coleta cada campo e confirma. Exemplo quero devolver material = form registerReturn. A conferencia fisica continua obrigatoria. Form deve ser o unico step. " +
         " Acoes adicionais: requests (acompanhar requisicoes reais); navigate (view: catalogo,estoque,requisicoes,transferencias,rotas,recomendacoes,compra,mapa,perfil,historico,funcionarios,devolucoes,nova,dashboard); export (view de dashboard ou recomendacoes, format pdf ou xlsx). Use somente as capacidades autorizadas no contexto. Para 'esta tela', use page. Ao receber resposta a uma pergunta, preserve as etapas anteriores no historico. Nunca invente confirmacao. " +
         " Para dashboards, filters opcional aceita somente from/to (YYYY-MM-DD), block, code, warehouse, status, priority. Nao invente datas: use a data atual no contexto. Filtros e escopos serao validados pelo servidor." +
         ' Conversas e perguntas gerais: formato EXATO {"steps":[{"action":"chat","answer":"Sua resposta aqui, em uma ou duas frases."}]}. answer e obrigatorio DENTRO do step chat. Nunca combine chat com outras acoes. Portugues brasileiro cordial e natural; nao afirme sentimentos, consciencia ou experiencias humanas. Nao repita saudacao a cada comando. Nao invente dados atuais: para dados MARCON use ferramentas; se precisar de fontes externas atuais diga que nao pode verifica-las. Nunca coloque raciocinio interno em answer.' +
@@ -59,7 +62,7 @@ export async function jamesPlan(
     url = "https://integrate.api.nvidia.com/v1/chat/completions";
     headers.Authorization = `Bearer ${process.env.NVIDIA_API_KEY}`;
     body = {
-      model: "openai/gpt-oss-20b",
+      model: process.env.NVIDIA_MODEL?.trim() || "openai/gpt-oss-20b",
       messages,
       temperature: 0.1,
       max_tokens: 2048,
@@ -140,6 +143,7 @@ export async function jamesPlan(
         "export",
         "chat",
         "operation",
+        "form",
         "help",
         "justify",
       ].includes(s.action)
@@ -154,13 +158,17 @@ export async function jamesPlan(
       throw new ActionError("Quantidade invalida.", 422);
     if (s.format !== undefined && !["pdf", "xlsx"].includes(s.format))
       throw new ActionError("Formato de exportação inválido.", 422);
-    if (["chat", "operation"].includes(s.action) && parsed.steps.length !== 1)
+    if (
+      ["chat", "operation", "form"].includes(s.action) &&
+      parsed.steps.length !== 1
+    )
       throw new ActionError(
         "Separe a conversa ou operação das outras tarefas.",
         422,
       );
     if (s.action === "operation")
       s.operation = parseJamesOperation(s.operation);
+    if (s.action === "form") beginJamesForm(s.view);
     if (
       s.action === "chat" &&
       (typeof s.answer !== "string" ||
@@ -187,6 +195,7 @@ export async function jamesPlan(
               "warehouse",
               "status",
               "priority",
+              "page",
             ].includes(k) ||
             typeof v !== "string" ||
             v.length > 128,

@@ -96,11 +96,22 @@ const roleCodes: Record<string, Account["role"]> = {
   Funcionário: "funcionario",
 };
 
-export async function executeWorkspaceAction(user: Account, input: unknown) {
+export async function executeWorkspaceAction(
+  user: Account,
+  input: unknown,
+  connection?: PoolConnection,
+) {
+  function run<T>(work: (c: PoolConnection) => Promise<T>): Promise<T> {
+    return connection ? work(connection) : transaction(work);
+  }
   if (!input || typeof input !== "object" || !("type" in input))
     throw new ActionError("Ação inválida.");
   if (inventoryActions.has(String(input.type)))
-    return executeInventoryAction(user, input as Record<string, unknown>);
+    return executeInventoryAction(
+      user,
+      input as Record<string, unknown>,
+      connection,
+    );
   const action = input as Action;
   switch (action.type) {
     case "saveUser": {
@@ -146,7 +157,7 @@ export async function executeWorkspaceAction(user: Account, input: unknown) {
         throw new ActionError(
           "Não altere o próprio perfil ou status de administrador.",
         );
-      return transaction(async (connection) => {
+      return run(async (connection) => {
         const actor = await actorId(connection, user);
         const duplicate = await one(
           connection,
@@ -241,7 +252,7 @@ export async function executeWorkspaceAction(user: Account, input: unknown) {
       const employeeNo = text(action.id, 30);
       if (employeeNo === user.id && !action.active)
         throw new ActionError("Não é possível desativar a própria conta.");
-      return transaction(async (connection) => {
+      return run(async (connection) => {
         const actor = await actorId(connection, user);
         const target = await one(
           connection,
@@ -269,7 +280,7 @@ export async function executeWorkspaceAction(user: Account, input: unknown) {
       const price = Number(action.price);
       if (!Number.isFinite(price) || price < 0 || price > 9999999999)
         throw new ActionError("Preço inválido.");
-      return transaction(async (connection) => {
+      return run(async (connection) => {
         const actor = await actorId(connection, user);
         const part = await one(
           connection,

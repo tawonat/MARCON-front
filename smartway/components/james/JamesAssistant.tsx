@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { BrandLogo } from "@/app/components/brand-logo";
+import { JamesCharacter, type JamesCharacterState } from "./JamesCharacter";
 import { useDemoStore } from "@/components/workspace/demo-store";
 import { useJamesVoice } from "./useJamesVoice";
 import {
@@ -10,6 +10,7 @@ import {
   speechText,
 } from "@/lib/james-voice";
 import type { JamesCart } from "@/lib/james-actions";
+import type { JamesReportContext } from "@/lib/james-reports";
 import styles from "./JamesAssistant.module.css";
 import { useJamesPet, type Dock } from "./useJamesPet";
 type Reply = {
@@ -28,6 +29,9 @@ type Reply = {
   confirmationKind?: "operation";
   operationCompleted?: boolean;
   clarificationToken?: string;
+  formToken?: string;
+  reportContext?: JamesReportContext;
+  quantityPrompt?: boolean;
   submitted?: boolean;
   result?: { ids?: number[]; id?: number };
   href?: string;
@@ -55,7 +59,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
   const [open, setOpen] = useState(false),
     [authorized, setAuthorized] = useState(true),
     [input, setInput] = useState(""),
-    [state, setState] = useState("idle"),
+    [state, setState] = useState<JamesCharacterState>("idle"),
     [error, setError] = useState(""),
     [provider, setProvider] = useState("nvidia");
   const [role, setRole] = useState("");
@@ -70,6 +74,13 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     return () => window.clearInterval(timer);
   }, [state]);
   const [clarification, setClarification] = useState<string | null>(null);
+  const [formToken, setFormToken] = useState<string | null>(null);
+  const reportContextRef = useRef<JamesReportContext | undefined>(undefined);
+  const navigation = useRef<string[]>([]);
+  useEffect(() => {
+    if (navigation.current.at(-1) !== pathname) navigation.current.push(pathname);
+    reportContextRef.current = undefined;
+  }, [pathname]);
   const [messages, setMessages] = useState<{ user?: string; answer?: Reply }[]>(
       [],
     ),
@@ -122,6 +133,11 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     else resumeVoice.current();
   }, []);
   const show = useCallback(() => {
+    if (
+      !dialog.current?.open &&
+      !matchMedia("(prefers-reduced-motion: reduce), (update: slow)").matches
+    )
+      setState("waking");
     setOpen(true);
     dialog.current?.showModal();
   }, []);
@@ -185,6 +201,8 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     const u = new SpeechSynthesisUtterance(speechText(text));
     u.voice = local;
     u.lang = "pt-BR";
+    u.rate = 0.96;
+    u.pitch = 1;
     speech.current = u;
     setState("speaking");
     u.onboundary = () => {
@@ -192,6 +210,11 @@ export default function JamesAssistant({ userId }: { userId: string }) {
         matchMedia("(prefers-reduced-motion: reduce), (update: slow)").matches
       )
         return;
+      const core = symbol.current?.querySelector("[data-james-core]");
+      core?.getAnimations().forEach((animation) => animation.cancel());
+      core?.animate([{ opacity: 0.45 }, { opacity: 1 }, { opacity: 0.65 }], {
+        duration: 220,
+      });
       symbol.current?.querySelector(`.${styles.orbit}`)?.animate(
         [
           { opacity: 0.4, transform: "rotate(-10deg) scale(1)" },
@@ -233,6 +256,19 @@ export default function JamesAssistant({ userId }: { userId: string }) {
   }
   async function send(text: string, confirm = false, resolveToken?: string) {
     if (!text.trim()) return;
+    const localCommand = text.trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[.!?]+$/, "");
+    if (["pausar escuta","desligar escuta","ficar parado","silenciar dicas","ativar dicas","recolher","voltar"].includes(localCommand)) {
+      if (localCommand.endsWith("escuta")) { pause(); return; }
+      if (localCommand === "recolher") { close(); return; }
+      if (localCommand === "voltar") {
+        if (navigation.current.length > 1) { navigation.current.pop(); minimize(); router.push(navigation.current.at(-1)!); }
+        else setError("Não há uma tela anterior desta sessão. Diga abra catálogo ou histórico.");
+        return;
+      }
+      updatePreferences(localCommand === "ficar parado" ? {still:true} : {quiet:localCommand === "silenciar dicas"});
+      const reply = localCommand === "ficar parado" ? "Vou permanecer na posição segura." : localCommand === "silenciar dicas" ? "Dicas silenciadas." : "Dicas ativadas.";
+      setMessages(m=>[...m,{answer:{reply}}]); speak(reply); return;
+    }
     const currentReview = reviewRef.current;
     if (/^(cancelar|cancele|nao|não)[.!]?$/i.test(text.trim())) {
       if (pending.current && confirming.current) {
@@ -244,6 +280,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
       pending.current?.abort();
       pending.current = null;
       setClarification(null);
+      setFormToken(null);
       setReview(null);
       reviewRef.current = null;
       setMessages((m) => [
@@ -320,20 +357,23 @@ export default function JamesAssistant({ userId }: { userId: string }) {
               }
             : {
                 message: text,
-                page: pathname,
+                page: pathname + window.location.search,
                 cart: cartRef.current,
+                formToken: formToken || undefined,
+                reportContext: reportContextRef.current,
                 history: messages
                   .slice(-6)
                   .map((m) => m.user || m.answer?.reply || ""),
                 clarificationToken:
                   resolveToken ||
                   (clarification &&
-                  messages
-                    .at(-1)
-                    ?.answer?.choices?.some(
-                      (p, index) =>
-                        p.code === text.trim() || choiceIndex(text) === index,
-                    )
+                  (messages.at(-1)?.answer?.quantityPrompt ||
+                    messages
+                      .at(-1)
+                      ?.answer?.choices?.some(
+                        (p, index) =>
+                          p.code === text.trim() || choiceIndex(text) === index,
+                      ))
                     ? clarification
                     : undefined),
               },
@@ -355,6 +395,8 @@ export default function JamesAssistant({ userId }: { userId: string }) {
       }
       if (!r.ok) throw new Error(data.error || "Não foi possível concluir.");
       setClarification(data.clarificationToken || null);
+      setFormToken(data.formToken || null);
+      reportContextRef.current = data.reportContext || reportContextRef.current;
       if (data.cart) {
         setCart(data.cart);
         cartRef.current = data.cart;
@@ -369,7 +411,13 @@ export default function JamesAssistant({ userId }: { userId: string }) {
       setReview(next);
       reviewRef.current = next;
       setMessages((m) => [...m, { answer: data }]);
-      setState(next ? "confirming" : "idle");
+      setState(
+        next
+          ? "confirming"
+          : data.operationCompleted || data.submitted
+            ? "success"
+            : "idle",
+      );
       if (data.operationCompleted || data.submitted) {
         window.dispatchEvent(new Event("marcon:workspace-updated"));
         router.refresh();
@@ -479,6 +527,8 @@ export default function JamesAssistant({ userId }: { userId: string }) {
       ],
       { duration: 620, easing: "cubic-bezier(.2,.7,.2,1)" },
     );
+    a.onfinish = () =>
+      setState((current) => (current === "waking" ? "idle" : current));
     return () => a.cancel();
   }, [open]);
   const validReview = review && review.cart === JSON.stringify(cart);
@@ -516,7 +566,14 @@ export default function JamesAssistant({ userId }: { userId: string }) {
       {!open && tip && (
         <div className={styles.tip}>
           <p>{tip}</p>
-          <button onClick={point}>Mostrar onde</button>
+          <button
+            onClick={() => {
+              setState("pointing");
+              point();
+            }}
+          >
+            Mostrar onde
+          </button>
           <button onClick={() => updatePreferences({ quiet: true })}>
             Silenciar dicas
           </button>
@@ -529,7 +586,10 @@ export default function JamesAssistant({ userId }: { userId: string }) {
         aria-label="Abrir James"
         aria-haspopup="dialog"
       >
-        <BrandLogo decorative compact />
+        <JamesCharacter
+          compact
+          state={error ? "error" : voice.capturing ? "listening" : state}
+        />
         <span>
           {voice.capturing
             ? voice.mode === "browser"
@@ -582,10 +642,12 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                 e.currentTarget.style.removeProperty("--light-y");
               }}
             >
-              <div className={styles.plinth} />
               <div className={styles.orbit} />
               <div className={styles.halo} />
-              <BrandLogo decorative />
+              <JamesCharacter
+                state={error ? "error" : state}
+                options={!!messages.at(-1)?.answer?.choices?.length}
+              />
               {[0, 1, 2, 3, 4, 5].map((i) => (
                 <i
                   key={i}
@@ -640,7 +702,9 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                           : [
                               "Procure parafusos",
                               "Abra recomendações de estoque",
-                              "Explique as transferências",
+                              "Solicitar transferência",
+                              "Registrar devolução",
+                              "Registrar entrada prevista",
                               "Exportar estoque em planilha",
                             ]
                       ).map((s) => (
@@ -952,6 +1016,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                     onClick={() => {
                       setOpen(false);
                       dialog.current?.close();
+                      setState("pointing");
                       point();
                     }}
                   >
@@ -972,17 +1037,23 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                   />
                   Ler respostas com voz local
                 </label>
-                <small>
-                  {provider === "nvidia"
-                    ? "Seu comando em texto e os itens do carrinho são processados pela NVIDIA."
-                    : "O modelo processa o texto no Ollama local."}{" "}
-                  {voice.mode === "browser"
-                    ? "Voz online autorizada: o áudio pode ser processado pelo serviço do navegador enquanto a escuta estiver ativa."
-                    : "No modo local, áudio e despertar ficam no dispositivo."}{" "}
-                  Após ativar, a escuta continua ao recolher James e navegar.
-                  Pausa na aba oculta e retoma ao voltar. Para encerrar, use
-                  Desligar escuta ou saia da conta.
-                </small>
+                <details className={styles.privacy}>
+                  <summary>
+                    Privacidade · {provider === "nvidia" ? "NVIDIA" : "Ollama"}{" "}
+                    · voz {voice.mode === "browser" ? "online" : "local"}
+                  </summary>
+                  <small>
+                    {provider === "nvidia"
+                      ? "Seu comando em texto e os itens do carrinho são processados pela NVIDIA."
+                      : "O modelo processa o texto no Ollama local."}{" "}
+                    {voice.mode === "browser"
+                      ? "Voz online autorizada: o áudio pode ser processado pelo serviço do navegador enquanto a escuta estiver ativa."
+                      : "No modo local, áudio e despertar ficam no dispositivo."}{" "}
+                    Após ativar, a escuta continua ao recolher James e navegar.
+                    Pausa na aba oculta e retoma ao voltar. Para encerrar, use
+                    Desligar escuta ou saia da conta.
+                  </small>
+                </details>
                 {voice.listening && (
                   <button
                     type="button"

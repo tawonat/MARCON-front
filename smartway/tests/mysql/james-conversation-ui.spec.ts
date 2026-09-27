@@ -135,6 +135,46 @@ test("James real UI: greeting, cancellation, operation confirmation, responsive 
     await expect(page.getByRole("button", { name: "Abrir James" })).toHaveCount(
       0,
     );
+    // A guided form in the actual UI, through the same authenticated stock API.
+    expect(
+      (
+        await page.request.post("/api/login", {
+          headers,
+          data: { identity: "1003", password: process.env.SEED_PASSWORD },
+        })
+      ).status(),
+    ).toBe(200);
+    await page.goto("/warehouse/dashboard");
+    await page.getByRole("button", { name: "Abrir James" }).click();
+    await dialog.getByLabel("Ler respostas com voz local").uncheck();
+    for (const text of [
+      "registrar entrada",
+      code,
+      "Central",
+      "duas unidades",
+      "Conferência de teste",
+    ])
+      await ask(text);
+    await expect(
+      dialog.locator('[data-character-state="confirming"]'),
+    ).toHaveCount(1);
+    const stock = async () =>
+      (
+        await pool.execute<mysql.RowDataPacket[]>(
+          "SELECT SUM(quantity) AS quantity FROM inventory WHERE part_id=?",
+          [partId],
+        )
+      )[0][0].quantity;
+    expect(Number(await stock())).toBe(100);
+    await ask("Confirmar ação");
+    expect(Number(await stock())).toBe(102);
+    await expect(
+      dialog.locator('[data-character-state="success"]'),
+    ).toHaveCount(1);
+    await page.screenshot({
+      path: info.outputPath("guided-success-desktop.png"),
+      animations: "disabled",
+    });
     expect(errors).toEqual([]);
   } finally {
     for (const key of keys)
@@ -150,6 +190,13 @@ test("James real UI: greeting, cancellation, operation confirmation, responsive 
       await pool.execute("DELETE FROM requests WHERE id=?", [id]);
     }
     if (partId) {
+      await pool.execute("DELETE FROM stock_movements WHERE part_id=?", [
+        partId,
+      ]);
+      await pool.execute(
+        "DELETE FROM audit_log WHERE entity_type='part' AND entity_id=?",
+        [partId],
+      );
       await pool.execute("DELETE FROM inventory WHERE part_id=?", [partId]);
       await pool.execute("DELETE FROM parts WHERE id=?", [partId]);
     }

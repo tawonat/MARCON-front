@@ -5,6 +5,18 @@ import { workspaceSnapshot } from "./workspace-db";
 import { executeWorkspaceAction } from "./workspace-actions";
 import { dashboardReport } from "./dashboard-report";
 import { jamesPlan, type JamesStep } from "./james-model";
+import { explicitCartPlan, quantityWords } from "./james-commands";
+import {
+  advanceJamesForm,
+  startJamesForm,
+  beginJamesForm,
+  type JamesForm,
+} from "./james-forms";
+import {
+  reportContext,
+  explicitReportPlan,
+  type JamesReportContext,
+} from "./james-reports";
 import { pathFor } from "./workspace-routes";
 import { choiceIndex } from "./james-voice";
 import { explicitOperation } from "./james-intents";
@@ -43,9 +55,15 @@ const mac = (s: string) =>
 function ticket(
   user: Account,
   entries: JamesCart,
-  continuation?: { steps: JamesStep[]; index: number; choices: string[] },
+  continuation?: {
+    steps: JamesStep[];
+    index: number;
+    choices: string[];
+    quantity?: boolean;
+  },
   operation?: JamesOperation,
   operationSummary?: string,
+  form?: JamesForm,
 ) {
   const data = Buffer.from(
     JSON.stringify({
@@ -53,13 +71,16 @@ function ticket(
       role: user.role,
       block: user.block,
       entries,
-      kind: operation
-        ? "operation"
-        : continuation
-          ? "clarification"
-          : "request",
+      kind: form
+        ? "form"
+        : operation
+          ? "operation"
+          : continuation
+            ? "clarification"
+            : "request",
       operation,
       operationSummary,
+      form,
       continuation,
       key: randomUUID(),
       until: Date.now() + 10 * 60000,
@@ -166,7 +187,7 @@ export async function converseJames(
         available: p.available ?? p.quantity,
       };
     });
-  const simple = normalize(message).replace(/[.!?]/g, "");
+  const simple = quantityWords(normalize(message).replace(/[.!?]/g, ""));
   const casual = simple
     .replace(/\b(?:james|jhames)\b/g, "")
     .replace(/[,;:]/g, "")
@@ -196,6 +217,36 @@ export async function converseJames(
       cart,
       cancelled: true,
     };
+  const startingForm = startJamesForm(message);
+  if (startingForm || input.formToken) {
+    const saved: JamesForm =
+      startingForm || readTicket(user, input.formToken, "form").form;
+    demand(
+      user,
+      ["updateUser", "toggleUser"].includes(saved.operation.name)
+        ? "people"
+        : "stock",
+    );
+    const next = advanceJamesForm(saved, startingForm ? undefined : message);
+    const formToken = ticket(user, cart, undefined, undefined, undefined, next);
+    if (next.field)
+      return {
+        cart,
+        formToken,
+        reply: next.question,
+        updatedAt: new Date().toISOString(),
+      };
+    const op = parseJamesOperation(next.operation);
+    const summary = await previewJamesOperation(user, op);
+    return {
+      cart,
+      formToken,
+      reply: `${summary} Diga Confirmar ação, Corrigir e o nome do campo, ou Cancelar. Nada foi executado ainda.`,
+      confirmationToken: ticket(user, cart, undefined, op, summary),
+      confirmationKind: "operation",
+      updatedAt: new Date().toISOString(),
+    };
+  }
   let continuation: JamesStep[] | undefined;
   if (input.clarificationToken) {
     const saved = readTicket(user, input.clarificationToken, "clarification");
@@ -204,13 +255,33 @@ export async function converseJames(
         "O carrinho mudou. Repita o pedido para revisar as quantidades.",
         409,
       );
-    const ordinal = choiceIndex(message);
-    const selected =
-      ordinal === null ? message.trim() : saved.continuation.choices[ordinal];
-    if (!saved.continuation.choices.includes(selected))
-      throw new ActionError("Escolha um dos códigos apresentados.", 422);
-    continuation = saved.continuation.steps;
-    continuation![saved.continuation.index].query = selected;
+    if (saved.continuation.quantity) {
+      const quantity = quantityWords(normalize(message)).match(
+        /^(\d+)\s+(unidades?|caixas?|embalagens?)[.!]?$/,
+      );
+      if (!quantity)
+        throw new ActionError(
+          "Diga a quantidade e se são unidades ou caixas.",
+          422,
+        );
+      continuation = saved.continuation.steps;
+      continuation![saved.continuation.index].quantity = integer(
+        Number(quantity[1]),
+      );
+      continuation![saved.continuation.index].unit = quantity[2].startsWith(
+        "unidade",
+      )
+        ? "unit"
+        : "package";
+    } else {
+      const ordinal = choiceIndex(message);
+      const selected =
+        ordinal === null ? message.trim() : saved.continuation.choices[ordinal];
+      if (!saved.continuation.choices.includes(selected))
+        throw new ActionError("Escolha um dos códigos apresentados.", 422);
+      continuation = saved.continuation.steps;
+      continuation![saved.continuation.index].query = selected;
+    }
   }
   const reordered = simple.replace(
     /^(troque|mude|altere|ajuste)\s+(?:para|pra)\s+(\d+)\s+(caixas|embalagens|unidades)$/,
@@ -224,11 +295,24 @@ export async function converseJames(
         (e) => correction[1] === "unidades" || byCode.get(e.code)!.packSize > 1,
       )
     : [];
-  if (correction && correctionItems.length !== 1)
+  if (!continuation && correction && correctionItems.length !== 1)
     return {
       reply:
         "Qual item do carrinho deseja corrigir? Informe o código e a quantidade. Nenhuma alteração foi aplicada.",
       cart: input.cart,
+      clarificationToken: correctionItems.length
+        ? ticket(user, cart, {
+            steps: [
+              {
+                action: "set",
+                quantity: integer(Number(correction[2])),
+                unit: correction[1] === "unidades" ? "unit" : "package",
+              },
+            ],
+            index: 0,
+            choices: correctionItems.map((e) => e.code),
+          })
+        : undefined,
       choices: correctionItems.map((e) => ({
         code: e.code,
         name: byCode.get(e.code)!.name,
@@ -242,6 +326,9 @@ export async function converseJames(
         .map((v) => v.slice(0, 2000))
     : [];
   const operation = explicitOperation(message);
+  let reportState: JamesReportContext | undefined = reportContext(
+    input.reportContext,
+  );
   const steps =
     continuation ??
     (operation
@@ -261,84 +348,86 @@ export async function converseJames(
             unit: correction[1] === "unidades" ? "unit" : "package",
           },
         ]
-      : justification
-        ? [{ action: "justify" as const, reason: justification[1] }]
-        : simple === "mostre meu carrinho"
-          ? [{ action: "cart" as const }]
-          : ["faca a requisicao", "revisar requisicao"].includes(simple)
-            ? [{ action: "review" as const }]
-            : await jamesPlan(
-                message,
-                {
-                  page:
-                    typeof input.page === "string"
-                      ? input.page.slice(0, 180)
-                      : "",
-                  role: user.role,
-                  operations:
-                    user.role === "funcionario"
-                      ? [
-                          "editRequest",
-                          "deleteRequest",
-                          "requestCancellation",
-                          "confirmReceipt",
-                        ]
-                      : user.role === "lider"
-                        ? ["approve", "analyze"]
-                        : user.role === "admin"
-                          ? [
-                              "approve",
-                              "analyze",
-                              "transfer",
-                              "cancelTransfer",
-                              "planRoute",
-                              "stockEntry",
-                              "adjustStock",
-                            ]
-                          : [
-                              "transfer",
-                              "cancelTransfer",
-                              "planRoute",
-                              "stockEntry",
-                              "adjustStock",
-                            ],
-                  capabilities: can(user.role, "request")
-                    ? [
-                        "find",
-                        "cart",
-                        "add",
-                        "set",
-                        "remove",
-                        "review",
-                        "requests",
-                        "export",
-                        "navigate",
-                      ]
-                    : can(user.role, "planning")
+      : (explicitCartPlan(message) ??
+        explicitReportPlan(message, reportState) ??
+        (justification
+          ? [{ action: "justify" as const, reason: justification[1] }]
+          : simple === "mostre meu carrinho"
+            ? [{ action: "cart" as const }]
+            : ["faca a requisicao", "revisar requisicao"].includes(simple)
+              ? [{ action: "review" as const }]
+              : await jamesPlan(
+                  message,
+                  {
+                    page:
+                      typeof input.page === "string"
+                        ? input.page.slice(0, 180)
+                        : "",
+                    role: user.role,
+                    operations:
+                      user.role === "funcionario"
+                        ? [
+                            "editRequest",
+                            "deleteRequest",
+                            "requestCancellation",
+                            "confirmReceipt",
+                          ]
+                        : user.role === "lider"
+                          ? ["approve", "analyze"]
+                          : user.role === "admin"
+                            ? [
+                                "approve",
+                                "analyze",
+                                "transfer",
+                                "cancelTransfer",
+                                "planRoute",
+                                "stockEntry",
+                                "adjustStock",
+                              ]
+                            : [
+                                "transfer",
+                                "cancelTransfer",
+                                "planRoute",
+                                "stockEntry",
+                                "adjustStock",
+                              ],
+                    capabilities: can(user.role, "request")
                       ? [
                           "find",
+                          "cart",
+                          "add",
+                          "set",
+                          "remove",
+                          "review",
                           "requests",
-                          "dashboard",
                           "export",
                           "navigate",
-                          "compra",
-                          "recomendacoes",
-                          "rotas",
-                          "transferencias",
                         ]
-                      : [
-                          "find",
-                          "requests",
-                          "dashboard do próprio bloco",
-                          "export",
-                          "navigate",
-                        ],
-                  today: new Date().toISOString().slice(0, 10),
-                  cart: describe(),
-                  history,
-                },
-                signal,
-              ));
+                      : can(user.role, "planning")
+                        ? [
+                            "find",
+                            "requests",
+                            "dashboard",
+                            "export",
+                            "navigate",
+                            "compra",
+                            "recomendacoes",
+                            "rotas",
+                            "transferencias",
+                          ]
+                        : [
+                            "find",
+                            "requests",
+                            "dashboard do próprio bloco",
+                            "export",
+                            "navigate",
+                          ],
+                    today: new Date().toISOString().slice(0, 10),
+                    cart: describe(),
+                    history,
+                  },
+                  signal,
+                ))));
   const replies: string[] = [];
   let review = false;
   let dashboard: unknown;
@@ -357,6 +446,21 @@ export async function converseJames(
       }[]
     | undefined;
   for (const [index, step] of steps.entries()) {
+    if (step.action === "form") {
+      const form = advanceJamesForm(beginJamesForm(step.view));
+      demand(
+        user,
+        ["updateUser", "toggleUser"].includes(form.operation.name)
+          ? "people"
+          : "stock",
+      );
+      return {
+        cart,
+        formToken: ticket(user, cart, undefined, undefined, undefined, form),
+        reply: form.question,
+        updatedAt: new Date().toISOString(),
+      };
+    }
     if (step.action === "chat")
       return { reply: step.answer, cart, updatedAt: new Date().toISOString() };
     if (step.action === "operation") {
@@ -433,7 +537,12 @@ export async function converseJames(
       if (matches.length !== 1)
         return {
           reply: matches.length
-            ? "Encontrei mais de uma opção. Escolha um item abaixo ou diga o código exato para continuar o pedido. Nenhuma alteração foi aplicada."
+            ? `Encontrei mais de uma opção. ${matches
+                .slice(0, 8)
+                .map((p, i) => `Opção ${i + 1}: ${p.name}, código ${p.code}`)
+                .join(
+                  ". ",
+                )}. Diga escolha a segunda, por exemplo, ou o código exato. Nenhuma alteração foi aplicada.`
             : "Qual item? Informe o codigo ou nome completo. Nenhuma alteracao foi aplicada.",
           choices: matches
             .slice(0, 8)
@@ -457,6 +566,13 @@ export async function converseJames(
         return {
           reply: `Quantas unidades ou embalagens de ${p.name}? Cada embalagem tem ${p.packSize} ${p.unit || "un"}. Nenhuma alteracao foi aplicada.`,
           cart: input.cart,
+          quantityPrompt: true,
+          clarificationToken: ticket(user, input.cart as JamesCart, {
+            steps,
+            index,
+            choices: [p.code],
+            quantity: true,
+          }),
         };
       const qtty = integer(
         step.quantity * (step.unit === "package" ? p.packSize : 1),
@@ -599,6 +715,16 @@ export async function converseJames(
         ...(view === "recomendacoes" ? { planning: "distribution" } : {}),
       });
       const report = await dashboardReport(user, reportQuery);
+      reportState = {
+        view,
+        action: view === "requisicoes" ? "requests" : "dashboard",
+        filters: {
+          ...step.filters,
+          from: report.filters.from,
+          to: report.filters.to,
+          page: String(report.filters.page),
+        },
+      };
       dashboard = {
         scope: report.scope,
         period: report.filters.from + " a " + report.filters.to,
@@ -636,6 +762,10 @@ export async function converseJames(
             : "Nenhuma requisição no período e escopo selecionados.",
         );
       }
+      if (step.action !== "export")
+        replies.push(
+          `Página ${report.filters.page} de ${report.pages}. ${report.details.total} registros. ${report.details.records.map((r) => `${r.id}: ${r.item}, ${r.quantity} ${r.unit}, ${r.status}`).join("; ")}. Diga próxima página, filtre por status, bloco ou código, ou exporte em PDF ou planilha.`,
+        );
       if (step.action === "export") {
         if (!step.format)
           throw new ActionError("Escolha PDF ou planilha.", 422);
@@ -744,6 +874,7 @@ export async function converseJames(
     hrefLabel,
     exportHref,
     records,
+    reportContext: reportState,
     navigate: !!href && /\b(?:abra|abrir|acesse)\b/.test(normalize(message)),
     updatedAt: new Date().toISOString(),
   };
