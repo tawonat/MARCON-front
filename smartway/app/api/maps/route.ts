@@ -5,6 +5,7 @@ import { databaseEnabled, getPool, transaction } from "@/lib/db";
 import { ActionError, can, demand, integer, text } from "@/lib/permissions";
 import { graphProblems, planStops, type FacilityGraph } from "@/lib/routing";
 import type { RowDataPacket, ResultSetHeader } from "mysql2";
+import { imageObstacles, imageSuggestions } from "@/lib/map-image";
 export const runtime = "nodejs";
 const json = (body: object, status = 200) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
       }).formData();
       const file = form.get("image");
       a = {
-        action: "save",
+        action: form.get("action") === "suggest" ? "suggest" : "save",
         title: form.get("title"),
         graph: JSON.parse(String(form.get("graph"))),
         baseId: Number(form.get("baseId")) || undefined,
@@ -144,6 +145,30 @@ export async function POST(request: NextRequest) {
       });
     }
     demand(user, "map");
+    if (a.action === "suggest") {
+      if (!image && a.baseId) {
+        const [rows] = await getPool().execute<RowDataPacket[]>(
+          "SELECT image_data FROM map_versions WHERE id=?",
+          [integer(a.baseId)],
+        );
+        image = rows[0]?.image_data;
+      }
+      if (!image)
+        throw new ActionError("Envie a planta antes de gerar sugestões.");
+      const meta = await sharp(image).metadata();
+      return json(
+        await imageSuggestions(image, {
+          width: meta.width!,
+          height: meta.height!,
+          metersPerPixel: 1,
+          scaleCalibrated: false,
+          nodes: [],
+          edges: [],
+          walls: [],
+          reviewed: false,
+        }),
+      );
+    }
     return await transaction(async (c) => {
       const [actors] = await c.execute<RowDataPacket[]>(
         "SELECT id FROM users WHERE employee_no=? AND active=TRUE AND role='admin' FOR UPDATE",
@@ -153,7 +178,7 @@ export async function POST(request: NextRequest) {
       if (a.action === "publish") {
         const id = integer(a.id),
           [r] = await c.execute<RowDataPacket[]>(
-            "SELECT graph,status FROM map_versions WHERE id=? FOR UPDATE",
+            "SELECT graph,status,image_data FROM map_versions WHERE id=? FOR UPDATE",
             [id],
           );
         if (!r[0] || r[0].status !== "Rascunho")
@@ -162,6 +187,10 @@ export async function POST(request: NextRequest) {
           typeof r[0].graph === "string"
             ? JSON.parse(r[0].graph)
             : (r[0].graph as FacilityGraph);
+        graph.obstacles = await imageObstacles(r[0].image_data);
+        graph.nodes = graph.nodes.map((n: FacilityGraph["nodes"][number]) =>
+          n.kind === "shelf" ? { ...n, kind: "access" } : n,
+        );
         const errors = graphProblems(graph);
         if (
           errors.length ||
@@ -177,8 +206,8 @@ export async function POST(request: NextRequest) {
           "UPDATE map_versions SET status='Arquivada' WHERE status='Publicada'",
         );
         await c.execute(
-          "UPDATE map_versions SET status='Publicada',published_at=UTC_TIMESTAMP(3) WHERE id=?",
-          [id],
+          "UPDATE map_versions SET graph=?,status='Publicada',published_at=UTC_TIMESTAMP(3) WHERE id=?",
+          [JSON.stringify(graph), id],
         );
         await c.execute(
           "INSERT INTO audit_log(actor_id,entity_type,entity_id,action) VALUES(?,'map',?,'publish')",
@@ -187,8 +216,13 @@ export async function POST(request: NextRequest) {
         return json({ id });
       }
       if (a.action !== "save") throw new ActionError("Ação inválida.");
-      const graph = a.graph as FacilityGraph,
-        errors = graphProblems(graph);
+      const graph = a.graph as FacilityGraph;
+      // Existing shelf IDs remain stable as access points; stock shelf metadata is untouched.
+      if (Array.isArray(graph?.nodes))
+        graph.nodes = graph.nodes.map((n) =>
+          n.kind === "shelf" ? { ...n, kind: "access", uncertain: true } : n,
+        );
+      const errors = graphProblems(graph);
       if (errors.length) throw new ActionError(errors[0]);
       const title = text(a.title, 120);
       if (!title) throw new ActionError("Informe o título.");
@@ -215,6 +249,9 @@ export async function POST(request: NextRequest) {
         image = base[0]?.image_data;
       }
       if (!image) throw new ActionError("Envie a planta baixa.");
+      graph.obstacles = await imageObstacles(image);
+      const imageErrors = graphProblems(graph);
+      if (imageErrors.length) throw new ActionError(imageErrors[0]);
       const meta = await sharp(image).metadata();
       if (meta.width !== graph.width || meta.height !== graph.height)
         throw new ActionError(

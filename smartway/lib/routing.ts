@@ -3,7 +3,18 @@
   label: string;
   x: number;
   y: number;
-  kind: "warehouse" | "block" | "aisle" | "door" | "shelf" | "delivery";
+  kind:
+    | "warehouse"
+    | "block"
+    | "aisle"
+    | "door"
+    | "shelf"
+    | "delivery"
+    | "junction"
+    | "access";
+  uncertain?: boolean;
+  suggestion?: string;
+  suggestedLabel?: string;
   warehouseId?: number;
   blockId?: number;
 };
@@ -22,8 +33,62 @@ export type FacilityGraph = {
   edges: MapEdge[];
   walls: Wall[];
   reviewed: boolean;
+  scaleCalibrated?: boolean;
+  obstacles?: { width: number; height: number; cells: string };
 };
-export type Path = { nodes: string[]; cost: number };
+export type Path = { nodes: string[]; cost: number; stops?: string[] };
+export const mapKinds = {
+  warehouse: "Almoxarifado",
+  aisle: "Corredor",
+  junction: "Cruzamento",
+  door: "Porta",
+  access: "Acesso",
+  block: "Bloco",
+  delivery: "Entrega",
+} as const;
+export function nextPointLabel(g: FacilityGraph, kind: keyof typeof mapKinds) {
+  let number = 1;
+  while (g.nodes.some((n) => n.label === `${mapKinds[kind]} ${number}`))
+    number++;
+  return `${mapKinds[kind]} ${number}`;
+}
+export function passageClear(
+  g: FacilityGraph,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+) {
+  if (g.walls.some((w) => intersects(a, b, w))) return false;
+  const m = g.obstacles;
+  if (!m) return true;
+  const x = a.x * (m.width - 1),
+    y = a.y * (m.height - 1),
+    dx = (b.x - a.x) * (m.width - 1),
+    dy = (b.y - a.y) * (m.height - 1),
+    steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * 4) + 1;
+  for (let i = 0; i <= steps; i++) {
+    const px = x + (dx * i) / steps,
+      py = y + (dy * i) / steps;
+    for (const cx of [Math.floor(px), Math.ceil(px)])
+      for (const cy of [Math.floor(py), Math.ceil(py)])
+        if (m.cells[cy * m.width + cx] !== "0") return false;
+  }
+  return true;
+}
+export function routeLegs(g: FacilityGraph, path: Path) {
+  return path.nodes.slice(1).map((id, i) => {
+    const a = g.nodes.find((n) => n.id === path.nodes[i])!,
+      b = g.nodes.find((n) => n.id === id)!;
+    return {
+      from: a.label,
+      to: b.label,
+      meters:
+        g.scaleCalibrated === true
+          ? Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height) *
+            g.metersPerPixel
+          : null,
+    };
+  });
+}
 const cross = (
   a: { x: number; y: number },
   b: { x: number; y: number },
@@ -71,6 +136,20 @@ export function graphProblems(g: FacilityGraph): string[] {
     return ["Dimensões ou escala inválidas."];
   const errors: string[] = [],
     ids = new Set<string>();
+  const mask = g.obstacles;
+  if (
+    mask &&
+    (!Number.isInteger(mask.width) ||
+      !Number.isInteger(mask.height) ||
+      mask.width < 2 ||
+      mask.height < 2 ||
+      mask.width > 192 ||
+      mask.height > 192 ||
+      typeof mask.cells !== "string" ||
+      mask.cells.length !== mask.width * mask.height ||
+      /[^01]/.test(mask.cells))
+  )
+    return ["Máscara de obstáculos inválida."];
   for (const n of g.nodes) {
     if (
       !n ||
@@ -80,9 +159,16 @@ export function graphProblems(g: FacilityGraph): string[] {
       typeof n.label !== "string" ||
       !n.label.trim() ||
       n.label.length > 120 ||
-      !["warehouse", "block", "aisle", "door", "shelf", "delivery"].includes(
-        n.kind,
-      ) ||
+      ![
+        "warehouse",
+        "block",
+        "aisle",
+        "door",
+        "shelf",
+        "delivery",
+        "junction",
+        "access",
+      ].includes(n.kind) ||
       ![n.x, n.y].every((v) => Number.isFinite(v) && v >= 0 && v <= 1) ||
       [n.warehouseId, n.blockId].some(
         (v) => v !== undefined && (!Number.isSafeInteger(v) || v < 1),
@@ -114,9 +200,9 @@ export function graphProblems(g: FacilityGraph): string[] {
           edge.seconds > 86400))
     )
       return ["Caminho ou tempo inválido."];
-    if (!edge.blocked && g.walls.some((w) => intersects(a, b, w)))
+    if (!edge.blocked && !passageClear(g, a, b))
       errors.push(
-        `Caminho ${a.label} → ${b.label} cruza uma parede. Abra a passagem na parede antes de publicar.`,
+        `Caminho ${a.label} → ${b.label} cruza uma parede ou obstáculo. Corrija os pontos e a passagem.`,
       );
   }
   return errors;
@@ -155,10 +241,12 @@ export function shortestPath(
       // Todos os pesos são segundos: distância escalada / velocidade de caminhada.
       const cost =
         costs.get(current)! +
-        (edge.seconds ??
-          (Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height) *
-            g.metersPerPixel) /
-            1.2);
+        (g.scaleCalibrated === false
+          ? Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height)
+          : (edge.seconds ??
+            (Math.hypot((a.x - b.x) * g.width, (a.y - b.y) * g.height) *
+              g.metersPerPixel) /
+              1.2));
       if (cost < costs.get(next)!) {
         costs.set(next, cost);
         previous.set(next, current);
@@ -224,5 +312,5 @@ export function planStops(
   const nodes = [start];
   for (let i = 1; i < order.length; i++)
     nodes.push(...matrix.get(`${order[i - 1]}:${order[i]}`)!.nodes.slice(1));
-  return { nodes, cost: score(order) };
+  return { nodes, cost: score(order), stops: order };
 }

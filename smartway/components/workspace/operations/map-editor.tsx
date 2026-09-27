@@ -6,7 +6,11 @@ import {
   type FacilityGraph,
   type MapNode,
   type Path,
+  mapKinds,
+  nextPointLabel,
+  passageClear,
 } from "@/lib/routing";
+import { RouteSummary } from "./route-summary";
 type Version = {
   id: number;
   title: string;
@@ -16,19 +20,12 @@ type Version = {
 const empty: FacilityGraph = {
   width: 1000,
   height: 700,
-  metersPerPixel: 0.01,
+  metersPerPixel: 1,
+  scaleCalibrated: false,
   nodes: [],
   edges: [],
   walls: [],
   reviewed: false,
-};
-const kinds: Record<MapNode["kind"], string> = {
-  warehouse: "Almoxarifado",
-  block: "Bloco",
-  aisle: "Corredor",
-  door: "Porta",
-  shelf: "Prateleira",
-  delivery: "Entrega",
 };
 export function MapEditor() {
   const [versions, setVersions] = useState<Version[]>([]),
@@ -45,6 +42,8 @@ export function MapEditor() {
     [route, setRoute] = useState<Path | null>(null),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false);
+  const [suggestion, setSuggestion] = useState<FacilityGraph | null>(null),
+    [connectTo, setConnectTo] = useState("");
   const file = useRef<File | null>(null),
     objectUrl = useRef("");
   async function refresh() {
@@ -69,13 +68,24 @@ export function MapEditor() {
     };
   }, []);
   function change(next: FacilityGraph) {
-    setGraph({ ...next, reviewed: false });
+    const edges = next.edges.map((e) => {
+      const a = next.nodes.find((n) => n.id === e.from),
+        b = next.nodes.find((n) => n.id === e.to);
+      return a && b && !passageClear(next, a, b) ? { ...e, blocked: true } : e;
+    });
+    setGraph({ ...next, edges, reviewed: false });
     setRoute(null);
   }
   function choose(v: Version) {
     setBase(v.id);
     setTitle(v.title);
-    setGraph(v.graph);
+    setGraph({
+      ...v.graph,
+      nodes: v.graph.nodes.map((n) =>
+        n.kind === "shelf" ? { ...n, kind: "access" } : n,
+      ),
+    });
+    setSuggestion(null);
     setUrl("/api/maps?image=" + v.id);
     file.current = null;
     setSelected("");
@@ -103,6 +113,8 @@ export function MapEditor() {
       setBase(undefined);
       setUrl(objectUrl.current);
       change({ ...empty, width: img.width, height: img.height });
+      setSuggestion(null);
+      setSelected("");
     };
     img.onerror = () => setMessage("Imagem inválida.");
     img.src = objectUrl.current;
@@ -119,7 +131,7 @@ export function MapEditor() {
           ...graph.nodes,
           {
             id,
-            label: kinds[kind] + " " + (graph.nodes.length + 1),
+            label: nextPointLabel(graph, kind === "shelf" ? "access" : kind),
             kind,
             x,
             y,
@@ -151,12 +163,44 @@ export function MapEditor() {
         (e) => [e.from, e.to].includes(id) && [e.from, e.to].includes(selected),
       )
     ) {
+      const a = graph.nodes.find((n) => n.id === selected)!,
+        b = graph.nodes.find((n) => n.id === id)!;
+      if (!passageClear(graph, a, b)) {
+        setMessage(
+          "Ligação recusada: parede ou obstáculo no trajeto. Adicione pontos ao longo da passagem livre.",
+        );
+        return;
+      }
       change({
         ...graph,
         edges: [...graph.edges, { from: selected, to: id, blocked: false }],
       });
     }
     setSelected(id);
+  }
+  async function suggest() {
+    setBusy(true);
+    setMessage("Analisando passagens e texto da planta localmente…");
+    try {
+      const f = new FormData();
+      f.set("action", "suggest");
+      f.set("graph", JSON.stringify(graph));
+      if (base) f.set("baseId", String(base));
+      if (file.current) f.set("image", file.current);
+      const r = await fetch("/api/maps", { method: "POST", body: f }),
+        data = await r.json();
+      if (!r.ok) throw Error(data.error);
+      setSuggestion(data.graph);
+      setMessage(data.ocr + " " + data.warning);
+    } catch (e) {
+      setMessage(
+        e instanceof Error
+          ? e.message
+          : "Falha ao analisar. Continue a edição manual.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
   async function save() {
     setBusy(true);
@@ -221,7 +265,8 @@ export function MapEditor() {
           <p>
             Posicione os pontos sobre a planta e conecte somente trajetos
             livres. Desenhe paredes em segmentos, deixando as portas abertas. A
-            imagem não é interpretada automaticamente.
+            análise automática gera candidatos que exigem revisão. Prateleiras
+            pertencem ao estoque; use pontos de acesso próximos.
           </p>
         </div>
       </div>
@@ -251,7 +296,11 @@ export function MapEditor() {
             step="any"
             value={graph.metersPerPixel}
             onChange={(e) =>
-              change({ ...graph, metersPerPixel: Number(e.target.value) })
+              change({
+                ...graph,
+                metersPerPixel: Number(e.target.value),
+                scaleCalibrated: false,
+              })
             }
           />
         </label>
@@ -277,7 +326,7 @@ export function MapEditor() {
             value={kind}
             onChange={(e) => setKind(e.target.value as MapNode["kind"])}
           >
-            {Object.entries(kinds).map(([k, v]) => (
+            {Object.entries(mapKinds).map(([k, v]) => (
               <option key={k} value={k}>
                 {v}
               </option>
@@ -285,6 +334,55 @@ export function MapEditor() {
           </select>
         </label>
       </div>
+      <label>
+        <input
+          type="checkbox"
+          checked={graph.scaleCalibrated === true}
+          onChange={(e) =>
+            change({ ...graph, scaleCalibrated: e.target.checked })
+          }
+        />{" "}
+        Escala calibrada por medida conhecida na planta
+      </label>
+      <button
+        className="button secondary"
+        disabled={!url || busy}
+        onClick={() => void suggest()}
+      >
+        Sugerir pontos e caminhos
+      </button>
+      {suggestion && (
+        <section className="map-suggestion-review">
+          <h3>Sugestões para revisão</h3>
+          <p>
+            {suggestion.nodes.length} pontos e {suggestion.edges.length}{" "}
+            conexões candidatas. Tipos, nomes e passagens são incertos. Aplicar
+            substitui os pontos do rascunho atual; as versões salvas permanecem
+            preservadas.
+          </p>
+          <button
+            className="button primary"
+            onClick={() => {
+              change({
+                ...suggestion,
+                metersPerPixel: graph.metersPerPixel,
+                scaleCalibrated: graph.scaleCalibrated,
+                walls: graph.walls,
+              });
+              setSuggestion(null);
+              setSelected("");
+            }}
+          >
+            Aplicar sugestões ao rascunho
+          </button>
+          <button
+            className="button secondary"
+            onClick={() => setSuggestion(null)}
+          >
+            Descartar sugestões
+          </button>
+        </section>
+      )}
       {url ? (
         <svg
           className="ops-map"
@@ -351,7 +449,7 @@ export function MapEditor() {
                 cx={n.x * 1000}
                 cy={n.y * 700}
                 r={selected === n.id ? 12 : 9}
-                fill={selected === n.id ? "#ff9c20" : "#164af0"}
+                fill={selected === n.id || n.uncertain ? "#b96a00" : "#164af0"}
               />
               <text
                 x={n.x * 1000 + 12}
@@ -384,6 +482,27 @@ export function MapEditor() {
       </label>
       {node && (
         <div className="ops-form">
+          {node.uncertain && (
+            <p role="status">
+              Sugestão incerta: {node.suggestion || "Revise este ponto."}
+            </p>
+          )}
+          {node.uncertain && (
+            <button
+              className="button secondary"
+              onClick={() => patchNode({ uncertain: false })}
+            >
+              Marcar ponto como revisado
+            </button>
+          )}
+          {node.suggestedLabel && (
+            <button
+              className="button secondary"
+              onClick={() => patchNode({ label: node.suggestedLabel })}
+            >
+              Usar nome OCR: {node.suggestedLabel}
+            </button>
+          )}
           <label>
             Nome
             <input
@@ -399,7 +518,7 @@ export function MapEditor() {
                 patchNode({ kind: e.target.value as MapNode["kind"] })
               }
             >
-              {Object.entries(kinds).map(([k, v]) => (
+              {Object.entries(mapKinds).map(([k, v]) => (
                 <option key={k} value={k}>
                   {v}
                 </option>
@@ -451,6 +570,50 @@ export function MapEditor() {
               />
             </label>
           ))}
+          <label>
+            Ligar ao ponto
+            <select
+              value={connectTo}
+              onChange={(e) => setConnectTo(e.target.value)}
+            >
+              <option value="">Selecione</option>
+              {graph.nodes
+                .filter((n) => n.id !== selected)
+                .map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {n.label}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <button
+            className="button secondary"
+            disabled={!connectTo}
+            onClick={() => {
+              const a = graph.nodes.find((n) => n.id === selected)!,
+                b = graph.nodes.find((n) => n.id === connectTo);
+              if (!b || !passageClear(graph, a, b)) {
+                setMessage("Ligação recusada: parede ou obstáculo no trajeto.");
+                return;
+              }
+              if (
+                !graph.edges.some(
+                  (e) =>
+                    [e.from, e.to].includes(selected) &&
+                    [e.from, e.to].includes(connectTo),
+                )
+              )
+                change({
+                  ...graph,
+                  edges: [
+                    ...graph.edges,
+                    { from: selected, to: connectTo, blocked: false },
+                  ],
+                });
+            }}
+          >
+            Ligar pontos
+          </button>
           <button
             className="button secondary"
             onClick={() => {
@@ -548,9 +711,7 @@ export function MapEditor() {
           setRoute(result);
           setMessage(
             result
-              ? "Teste: " +
-                  Math.ceil(result.cost) +
-                  " segundos estimados, sem movimentação de saldo."
+              ? "Percurso calculado, sem movimentação de saldo."
               : "Rota indisponível. Confira ligações, paredes e bloqueios.",
           );
         }}
@@ -566,17 +727,24 @@ export function MapEditor() {
           </select>
         </label>
         <label>
-          Paradas (Ctrl ou seleção múltipla)
-          <select name="stops" multiple size={4}>
+          Paradas (selecione até 25)
+          <span className="map-stop-list">
             {graph.nodes.map((n) => (
-              <option key={n.id} value={n.id}>
+              <span key={n.id}>
+                <input
+                  aria-label={"Parada " + n.label}
+                  type="checkbox"
+                  name="stops"
+                  value={n.id}
+                />
                 {n.label}
-              </option>
+              </span>
             ))}
-          </select>
+          </span>
         </label>
         <button className="button secondary">Testar percurso</button>
       </form>
+      {route && <RouteSummary graph={graph} route={route} />}
       <label>
         <input
           type="checkbox"

@@ -1,6 +1,7 @@
 ﻿"use client";
 import { useEffect, useState } from "react";
 import type { Request } from "@/lib/demo-data";
+import { RouteSummary } from "./route-summary";
 import {
   planStops,
   shortestPath,
@@ -57,6 +58,7 @@ export function DeliveryRoute({ request }: { request: Request }) {
               ? {
                   nodes: [...route.nodes, ...tail.nodes.slice(1)],
                   cost: route.cost + tail.cost,
+                  stops: [...(route.stops ?? []), end.id],
                 }
               : null;
         }
@@ -77,14 +79,13 @@ export function DeliveryRoute({ request }: { request: Request }) {
     );
   return (
     <details>
-      <summary>
-        Percurso sugerido · {Math.ceil(data.route.cost)} segundos estimados
-      </summary>
+      <summary>Percurso sugerido</summary>
       <p>
         {data.route.nodes
           .map((id) => data.graph.nodes.find((n) => n.id === id)?.label)
           .join(" → ")}
       </p>
+      <RouteSummary graph={data.graph} route={data.route} />
       <svg
         className="ops-map"
         viewBox="0 0 1000 700"

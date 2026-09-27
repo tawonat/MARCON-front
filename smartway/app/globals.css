@@ -3173,6 +3173,13 @@ td select {
 .dashboard-suite .panel-head {
   flex-wrap: wrap;
 }
+.map-suggestion-review { margin-block:18px; padding:18px; border:1px solid var(--line); border-left:4px solid #b96a00; border-radius:12px; background:var(--canvas); }
+.map-suggestion-review .button { margin:4px; }
+.map-stop-list { display:grid; gap:8px; max-height:220px; overflow:auto; border:1px solid var(--line); padding:10px; border-radius:10px; }
+.map-stop-list > span { display:flex; gap:10px; align-items:center; min-height:44px; }
+.map-stop-list input { flex:none; }
+.map-route-summary { padding:16px; background:var(--canvas); border-radius:12px; margin-block:16px; }
+.map-route-summary li { padding-block:6px; overflow-wrap:anywhere; }
 .dashboard-suite .panel-head > div {
   flex: 1 1 220px;
 }

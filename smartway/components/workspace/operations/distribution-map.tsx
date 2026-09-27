@@ -1,6 +1,7 @@
 ﻿"use client";
 import { useState } from "react";
 import type { FacilityGraph, Path } from "@/lib/routing";
+import { RouteSummary } from "./route-summary";
 export function DistributionMap({ version }: { version: number | null }) {
   const [graph, setGraph] = useState<FacilityGraph | null>(null),
     [route, setRoute] = useState<Path | null>(null),
@@ -111,14 +112,7 @@ export function DistributionMap({ version }: { version: number | null }) {
               />
             )}
           </svg>
-          {route && (
-            <p>
-              {route.nodes
-                .map((id) => graph.nodes.find((n) => n.id === id)?.label)
-                .join(" → ")}{" "}
-              · {Math.ceil(route.cost)} s estimados.
-            </p>
-          )}
+          {route && <RouteSummary graph={graph} route={route} />}
         </>
       )}
       {message && <p role="status">{message}</p>}
