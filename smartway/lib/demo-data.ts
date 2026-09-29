@@ -77,6 +77,11 @@ export const initialRequests: Request[] = [
   },
 ];
 export type Part = {
+  description?: string;
+  purpose?: string;
+  material?: string;
+  dimensions?: string;
+  approvedAliases?: string[];
   reserved?: number;
   available?: number;
   unit?: string;

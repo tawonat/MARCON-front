@@ -23,8 +23,8 @@ export async function GET() {
           part.locations
             ?.map((l) => `${l.warehouse} / ${l.aisle} / ${l.shelf}`)
             .join("; ") ?? part.location,
-        description: part.name,
-        specification: `QR/ID ${part.qrCode ?? part.code}`,
+        description: part.description || part.name,
+        specification: [part.dimensions, part.material, `QR/ID ${part.qrCode ?? part.code}`].filter(Boolean).join(" · "),
       }))
     : catalogItems;
   return NextResponse.json(

@@ -43,6 +43,13 @@ export function explicitConfirmation(value: string) {
 }
 // Expand registered unit abbreviations for speech without changing visible codes or quantities.
 export function speechText(value: string) {
+  const smallNumbers = ["zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "catorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove"];
+  const tens = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa"];
+  const spoken = (digits: string) => {
+    const number = Number(digits);
+    if (!Number.isSafeInteger(number) || number < 0 || number >= 100) return digits;
+    return number < 20 ? smallNumbers[number] : `${tens[Math.floor(number / 10)]}${number % 10 ? ` e ${smallNumbers[number % 10]}` : ""}`;
+  };
   const units: Record<string, [string, string]> = {
     un: ["unidade", "unidades"],
     unid: ["unidade", "unidades"],
@@ -51,9 +58,12 @@ export function speechText(value: string) {
     m: ["metro", "metros"],
     l: ["litro", "litros"],
   };
-  return value.replace(
+  return value
+    .replace(/(?<![-\w])M(\d{1,2})\s*[×x]\s*(\d{1,2})\b/gi, (_, thread: string, length: string) => `M ${spoken(thread)} por ${spoken(length)} milímetros`)
+    .replace(/(?<![-\w])M(\d{1,2})\b/gi, (_, thread: string) => `M ${spoken(thread)}`)
+    .replace(
     /\b(\d+(?:[,.]\d+)?)\s+(unid|un|kg|g|m|l)(?=[\s,.;:!?]|$)/gi,
     (_, quantity: string, unit: string) =>
       `${quantity} ${units[unit.toLowerCase()][Number(quantity.replace(",", ".")) === 1 ? 0 : 1]}`,
-  );
+    );
 }

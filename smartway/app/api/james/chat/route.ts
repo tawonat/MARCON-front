@@ -15,7 +15,8 @@ export async function GET() {
           authenticated: true,
           userId: user.id,
           role: user.role,
-          provider: process.env.JAMES_PROVIDER || "nvidia",
+          provider: "nvidia",
+          providerConfigured: Boolean(process.env.NVIDIA_API_KEY?.trim()),
         })
       : json({ error: "Faca login." }, 401);
   } catch {
@@ -23,6 +24,7 @@ export async function GET() {
   }
 }
 export async function POST(request: NextRequest) {
+  const startedAt = performance.now();
   let id: string | undefined;
   try {
     const user = await currentUser();
@@ -49,11 +51,13 @@ export async function POST(request: NextRequest) {
       throw new ActionError("Mensagem invalida.");
     id = user.id;
     active.add(id);
-    return json(
+    const response = json(
       body.mode === "confirm"
-        ? await confirmJames(user, body.token, body.confirmation)
+        ? await confirmJames(user, body.token, body.confirmation, body.cart)
         : await converseJames(user, body, request.signal),
     );
+    response.headers.set("Server-Timing", `james;dur=${Math.round(performance.now() - startedAt)}`);
+    return response;
   } catch (error) {
     if (error instanceof ActionError)
       return json({ error: error.message }, error.status);

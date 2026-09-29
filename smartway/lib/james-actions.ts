@@ -19,6 +19,7 @@ import {
 } from "./james-reports";
 import { pathFor } from "./workspace-routes";
 import { choiceIndex } from "./james-voice";
+import { catalogMatches, narrowCandidates, rankCatalogCandidates, candidateQuestion } from "./james-catalog";
 import { explicitOperation } from "./james-intents";
 import {
   previewJamesOperation,
@@ -32,6 +33,25 @@ export type JamesCart = {
   priority: "Leve" | "Moderado" | "Urgente";
   justification: string;
 }[];
+function draft(
+  step: JamesStep,
+  block: string | null | undefined,
+  stage: string,
+) {
+  return {
+    action: step.action,
+    query: step.query || "",
+    purpose: step.purpose || null,
+    appearance: step.appearance || null,
+    material: step.material || null,
+    dimensions: step.dimensions || null,
+    quantity: step.quantity ?? null,
+    unit: step.unit || null,
+    block: block || null,
+    pending: stage,
+    version: randomUUID(),
+  };
+}
 const normalize = (s: string) =>
   s
     .normalize("NFD")
@@ -60,10 +80,15 @@ function ticket(
     index: number;
     choices: string[];
     quantity?: boolean;
+    candidates?: string[];
+    offset?: number;
+    hypothesisCode?: string;
   },
   operation?: JamesOperation,
   operationSummary?: string,
   form?: JamesForm,
+  cartProposal = false,
+  baseEntries?: JamesCart,
 ) {
   const data = Buffer.from(
     JSON.stringify({
@@ -71,13 +96,16 @@ function ticket(
       role: user.role,
       block: user.block,
       entries,
-      kind: form
-        ? "form"
-        : operation
-          ? "operation"
-          : continuation
-            ? "clarification"
-            : "request",
+      baseEntries,
+      kind: cartProposal
+        ? "cart"
+        : form
+          ? "form"
+          : operation
+            ? "operation"
+            : continuation
+              ? "clarification"
+              : "request",
       operation,
       operationSummary,
       form,
@@ -118,7 +146,35 @@ export async function confirmJames(
   user: Account,
   token: unknown,
   confirmation: unknown,
+  currentCart?: unknown,
 ) {
+  if (confirmation === "confirmar carrinho") {
+    demand(user, "request");
+    const t = readTicket(user, token, "cart");
+    if (JSON.stringify(currentCart) !== JSON.stringify(t.baseEntries))
+      throw new ActionError("O carrinho mudou. Revise a proposta.", 409);
+    const { stock } = await workspaceSnapshot(user, true);
+    const byCode = new Map(stock.map((part) => [part.code, part]));
+    for (const entry of t.entries as JamesCart) {
+      const part = byCode.get(entry.code);
+      if (!part || integer(entry.quantity) > (part.available ?? part.quantity))
+        throw new ActionError(
+          "O catálogo ou saldo mudou. Revise o carrinho.",
+          409,
+        );
+    }
+    return {
+      reply: "Item confirmado no carrinho.",
+      cart: t.entries,
+      items: (t.entries as JamesCart).map((entry) => ({
+        ...entry,
+        name: byCode.get(entry.code)!.name,
+        unit: byCode.get(entry.code)!.unit,
+        packSize: byCode.get(entry.code)!.packSize,
+        available: byCode.get(entry.code)!.available,
+      })),
+    };
+  }
   if (confirmation === "confirmar acao") {
     const t = readTicket(user, token, "operation");
     return executeJamesOperation(user, t.operation, t.key, t.operationSummary);
@@ -255,9 +311,31 @@ export async function converseJames(
         "O carrinho mudou. Repita o pedido para revisar as quantidades.",
         409,
       );
+    const correction = quantityWords(normalize(message)).match(
+      /^(?:na verdade[, ]*|corrija (?:a )?quantidade (?:para )?)(\d+)(?:\s+(unidades?|caixas?|embalagens?))?[.!]?$/,
+    );
+    if (correction && !saved.continuation.quantity) {
+      const step = saved.continuation.steps[
+        saved.continuation.index
+      ] as JamesStep;
+      step.quantity = integer(Number(correction[1]));
+      if (correction[2])
+        step.unit = correction[2].startsWith("unidade") ? "unit" : "package";
+      const choices: string[] = saved.continuation.choices;
+      return {
+        reply: `Quantidade atualizada para ${step.quantity} ${step.unit === "package" ? "caixas" : "unidades"}. Qual peça você quer?`,
+        cart,
+        draft: draft(step, user.block, "peça"),
+        clarificationToken: ticket(user, cart, saved.continuation),
+        choices: choices.map((code) => ({
+          code,
+          name: byCode.get(code)?.name || code,
+        })),
+      };
+    }
     if (saved.continuation.quantity) {
       const quantity = quantityWords(normalize(message)).match(
-        /^(\d+)\s+(unidades?|caixas?|embalagens?)[.!]?$/,
+        /^(?:na verdade[, ]*)?(\d+)(?:\s+(unidades?|caixas?|embalagens?))?[.!]?$/,
       );
       if (!quantity)
         throw new ActionError(
@@ -268,19 +346,108 @@ export async function converseJames(
       continuation![saved.continuation.index].quantity = integer(
         Number(quantity[1]),
       );
-      continuation![saved.continuation.index].unit = quantity[2].startsWith(
-        "unidade",
-      )
-        ? "unit"
-        : "package";
+      continuation![saved.continuation.index].unit = quantity[2]
+        ? quantity[2].startsWith("unidade")
+          ? "unit"
+          : "package"
+        : continuation![saved.continuation.index].unit;
     } else {
       const ordinal = choiceIndex(message);
-      const selected =
-        ordinal === null ? message.trim() : saved.continuation.choices[ordinal];
-      if (!saved.continuation.choices.includes(selected))
-        throw new ActionError("Escolha um dos códigos apresentados.", 422);
-      continuation = saved.continuation.steps;
-      continuation![saved.continuation.index].query = selected;
+      const allCodes: string[] =
+        saved.continuation.candidates || saved.continuation.choices;
+      if (!allCodes.length) {
+        continuation = saved.continuation.steps;
+        const step = continuation![saved.continuation.index];
+        step.query = `${step.query || ""} ${message}`.trim();
+      } else {
+        if (normalize(message) === "mais opcoes") {
+          const offset =
+            ((saved.continuation.offset || 0) + 3) % allCodes.length;
+          const choices = allCodes.slice(offset, offset + 3);
+          return {
+            reply: `Outras opções: ${choices.map((code, i) => `${i + 1}. ${byCode.get(code)?.name} (${code})`).join("; ")}.`,
+            cart,
+            draft: draft(
+              saved.continuation.steps[saved.continuation.index],
+              user.block,
+              "peça",
+            ),
+            choices: choices.map((code) => ({
+              code,
+              name: byCode.get(code)?.name || code,
+            })),
+            moreOptions: allCodes.length > 3,
+            clarificationToken: ticket(user, cart, {
+              ...saved.continuation,
+              choices,
+              offset,
+            }),
+          };
+        }
+        let selected = saved.continuation.hypothesisCode && /^(?:sim|isso|esse mesmo)[.!]?$/i.test(message.trim())
+          ? saved.continuation.hypothesisCode
+          : ordinal === null ? message.trim() : saved.continuation.choices[ordinal];
+        if (!allCodes.includes(selected)) {
+          let narrowed = narrowCandidates(
+            allCodes.map((code) => byCode.get(code)!).filter(Boolean),
+            message,
+          ).map((part) => part.code);
+          if (!narrowed.length)
+            narrowed = rankCatalogCandidates(
+              allCodes.map((code) => byCode.get(code)!).filter(Boolean),
+              { query: message },
+            ).map((result) => result.part.code);
+          const spokenMeasure = normalize(message).match(/\b(seis|oito|dez|doze)\b/);
+          const numberWord: Record<string, string> = { seis: "6", oito: "8", dez: "10", doze: "12" };
+          const plausible = spokenMeasure
+            ? narrowed.filter((code) => {
+                const part = byCode.get(code)!;
+                const values = normalize(`${part.name} ${part.dimensions || ""}`);
+                return new RegExp(`\\bm${numberWord[spokenMeasure[1]]}\\b|\\b${numberWord[spokenMeasure[1]]}\\s*mm\\b`).test(values);
+              })
+            : [];
+          if (plausible.length === 1 && spokenMeasure && !/\bm\d+\b/i.test(message)) {
+            const part = byCode.get(plausible[0])!;
+            const thread = normalize(`${part.name} ${part.dimensions || ""}`).match(/\b(m\d+)\b/)?.[1]?.toUpperCase();
+            return {
+              reply: `Você disse "${spokenMeasure[1]}". ${part.name}${thread ? ` tem rosca ${thread}` : ""}. É essa medida? Diga sim ou informe outra característica.`,
+              cart,
+              draft: draft(saved.continuation.steps[saved.continuation.index], user.block, "confirmar medida"),
+              choices: [{ code: part.code, name: part.name }],
+              clarificationToken: ticket(user, cart, { ...saved.continuation, choices: [part.code], candidates: [part.code], hypothesisCode: part.code }),
+            };
+          }
+          if (narrowed.length !== 1) {
+            const candidates = narrowed.length ? narrowed : allCodes;
+            const choices = candidates.slice(0, 3);
+            return {
+              reply: narrowed.length
+                ? `Ainda há ${narrowed.length} peças. ${candidateQuestion(candidates.map((code) => byCode.get(code)!).filter(Boolean))} ${choices.map((code) => `${byCode.get(code)?.name} (${code})`).join("; ")}.`
+                : "Não identifiquei essa característica no catálogo. Diga a medida ou o código exato de uma das opções.",
+              cart,
+              draft: draft(
+                saved.continuation.steps[saved.continuation.index],
+                user.block,
+                "medida ou código",
+              ),
+              choices: choices.map((code) => ({
+                code,
+                name: byCode.get(code)?.name || code,
+              })),
+              moreOptions: candidates.length > 3,
+              clarificationToken: ticket(user, cart, {
+                ...saved.continuation,
+                choices,
+                candidates,
+                offset: 0,
+              }),
+            };
+          }
+          selected = narrowed[0];
+        }
+        continuation = saved.continuation.steps;
+        continuation![saved.continuation.index].query = selected;
+      }
     }
   }
   const reordered = simple.replace(
@@ -295,6 +462,9 @@ export async function converseJames(
         (e) => correction[1] === "unidades" || byCode.get(e.code)!.packSize > 1,
       )
     : [];
+  const bareCorrection = simple.match(
+    /^na verdade[, ]*(\d+)(?:\s+(unidades?|caixas?|embalagens?))?$/,
+  );
   if (!continuation && correction && correctionItems.length !== 1)
     return {
       reply:
@@ -339,95 +509,120 @@ export async function converseJames(
           },
         ]
       : undefined) ??
-    (correction
+    (bareCorrection && cart.length === 1
       ? [
           {
             action: "set" as const,
-            query: correctionItems[0].code,
-            quantity: integer(Number(correction[2])),
-            unit: correction[1] === "unidades" ? "unit" : "package",
+            query: cart[0].code,
+            quantity: integer(Number(bareCorrection[1])),
+            unit:
+              bareCorrection[2]?.startsWith("caixa") ||
+              bareCorrection[2]?.startsWith("embalagem")
+                ? "package"
+                : "unit",
           },
         ]
-      : (explicitCartPlan(message) ??
-        explicitReportPlan(message, reportState) ??
-        (justification
-          ? [{ action: "justify" as const, reason: justification[1] }]
-          : simple === "mostre meu carrinho"
-            ? [{ action: "cart" as const }]
-            : ["faca a requisicao", "revisar requisicao"].includes(simple)
-              ? [{ action: "review" as const }]
-              : await jamesPlan(
-                  message,
-                  {
-                    page:
-                      typeof input.page === "string"
-                        ? input.page.slice(0, 180)
-                        : "",
-                    role: user.role,
-                    operations:
-                      user.role === "funcionario"
-                        ? [
-                            "editRequest",
-                            "deleteRequest",
-                            "requestCancellation",
-                            "confirmReceipt",
-                          ]
-                        : user.role === "lider"
-                          ? ["approve", "analyze"]
-                          : user.role === "admin"
-                            ? [
-                                "approve",
-                                "analyze",
-                                "transfer",
-                                "cancelTransfer",
-                                "planRoute",
-                                "stockEntry",
-                                "adjustStock",
-                              ]
-                            : [
-                                "transfer",
-                                "cancelTransfer",
-                                "planRoute",
-                                "stockEntry",
-                                "adjustStock",
-                              ],
-                    capabilities: can(user.role, "request")
-                      ? [
-                          "find",
-                          "cart",
-                          "add",
-                          "set",
-                          "remove",
-                          "review",
-                          "requests",
-                          "export",
-                          "navigate",
-                        ]
-                      : can(user.role, "planning")
+      : correction
+        ? [
+            {
+              action: "set" as const,
+              query: correctionItems[0].code,
+              quantity: integer(Number(correction[2])),
+              unit: correction[1] === "unidades" ? "unit" : "package",
+            },
+          ]
+        : (explicitCartPlan(message) ??
+          explicitReportPlan(message, reportState) ??
+          (justification
+            ? [{ action: "justify" as const, reason: justification[1] }]
+            : simple === "mostre meu carrinho"
+              ? [{ action: "cart" as const }]
+              : ["faca a requisicao", "revisar requisicao"].includes(simple)
+                ? [{ action: "review" as const }]
+                : await jamesPlan(
+                    message,
+                    {
+                      page:
+                        typeof input.page === "string"
+                          ? input.page.slice(0, 180)
+                          : "",
+                      role: user.role,
+                      operations:
+                        user.role === "funcionario"
+                          ? [
+                              "editRequest",
+                              "deleteRequest",
+                              "requestCancellation",
+                              "confirmReceipt",
+                            ]
+                          : user.role === "lider"
+                            ? ["approve", "analyze"]
+                            : user.role === "admin"
+                              ? [
+                                  "approve",
+                                  "analyze",
+                                  "transfer",
+                                  "cancelTransfer",
+                                  "planRoute",
+                                  "stockEntry",
+                                  "adjustStock",
+                                ]
+                              : [
+                                  "transfer",
+                                  "cancelTransfer",
+                                  "planRoute",
+                                  "stockEntry",
+                                  "adjustStock",
+                                ],
+                      capabilities: can(user.role, "request")
                         ? [
                             "find",
+                            "cart",
+                            "add",
+                            "set",
+                            "remove",
+                            "review",
                             "requests",
-                            "dashboard",
                             "export",
                             "navigate",
-                            "compra",
-                            "recomendacoes",
-                            "rotas",
-                            "transferencias",
                           ]
-                        : [
-                            "find",
-                            "requests",
-                            "dashboard do próprio bloco",
-                            "export",
-                            "navigate",
-                          ],
-                    today: new Date().toISOString().slice(0, 10),
-                    cart: describe(),
-                    history,
-                  },
-                  signal,
+                        : can(user.role, "planning")
+                          ? [
+                              "find",
+                              "requests",
+                              "dashboard",
+                              "export",
+                              "navigate",
+                              "compra",
+                              "recomendacoes",
+                              "rotas",
+                              "transferencias",
+                            ]
+                          : [
+                              "find",
+                              "requests",
+                              "dashboard do próprio bloco",
+                              "export",
+                              "navigate",
+                            ],
+                      today: new Date().toISOString().slice(0, 10),
+                      cart: describe(),
+                      history,
+                    },
+                    signal,
                 ))));
+  if (steps.some((step) => /\b(?:mesmo que pedi|igual ao ultimo|mesmo de ontem|pedi ontem)\b/.test(normalize(step.query || "")))) {
+    demand(user, "request");
+    const { requests } = await workspaceSnapshot(user);
+    const yesterday = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(new Date(Date.now() - 86_400_000));
+    const own = requests.filter((request) => request.requesterId === user.id && (!/ontem/.test(simple) || request.date === yesterday));
+    const previous = own[0];
+    if (!previous) return { reply: "Não encontrei um pedido anterior seu nesse período. Descreva a peça ou procure no histórico.", cart };
+    for (const step of steps) {
+      if (/\b(?:mesmo que pedi|igual ao ultimo|mesmo de ontem|pedi ontem)\b/.test(normalize(step.query || "")))
+        step.query = previous.code;
+    }
+  }
   const replies: string[] = [];
   let review = false;
   let dashboard: unknown;
@@ -494,22 +689,17 @@ export async function converseJames(
     )
       demand(user, "request");
     if (["add", "set", "remove", "find"].includes(step.action)) {
-      const q = normalize(step.query || "");
-      const tokens = q
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((t) => t.replace(/s$/, ""));
-      let matches = stock.filter((p) => normalize(p.code) === q);
-      if (!matches.length) {
-        const words = q.split(/[\s,;:()]+/);
-        matches = stock.filter((p) => words.includes(normalize(p.code)));
-      }
-      if (!matches.length)
-        matches = stock.filter(
-          (p) =>
-            tokens.length &&
-            tokens.every((t) => normalize(p.name + " " + p.code).includes(t)),
-        );
+      const ranked = rankCatalogCandidates(stock, {
+        query: step.query || "",
+        purpose: step.purpose,
+        material: step.material,
+        dimensions: step.dimensions,
+        appearance: step.appearance,
+      });
+      const exact = stock.filter((part) => [part.code, part.name].some((value) => normalize(value) === normalize(step.query || "")));
+      const compatible = new Set(ranked.map((result) => result.part.code));
+      const verifiedExact = exact.filter((part) => compatible.has(part.code));
+      let matches = verifiedExact.length ? verifiedExact : ranked.length ? ranked.map((result) => result.part) : exact.length ? [] : catalogMatches(stock, step.query || "");
       if (["set", "remove"].includes(step.action))
         matches = matches.filter((p) => cart.some((e) => e.code === p.code));
       if (step.action === "find") {
@@ -537,24 +727,25 @@ export async function converseJames(
       if (matches.length !== 1)
         return {
           reply: matches.length
-            ? `Encontrei mais de uma opção. ${matches
-                .slice(0, 8)
+            ? `${candidateQuestion(matches.slice(0, 3))} ${matches
+                .slice(0, 3)
                 .map((p, i) => `Opção ${i + 1}: ${p.name}, código ${p.code}`)
                 .join(
                   ". ",
                 )}. Diga escolha a segunda, por exemplo, ou o código exato. Nenhuma alteração foi aplicada.`
             : "Qual item? Informe o codigo ou nome completo. Nenhuma alteracao foi aplicada.",
           choices: matches
-            .slice(0, 8)
+            .slice(0, 3)
             .map((p) => ({ code: p.code, name: p.name })),
-          clarificationToken: matches.length
-            ? ticket(user, input.cart as JamesCart, {
-                steps,
-                index,
-                choices: matches.slice(0, 8).map((p) => p.code),
-              })
-            : undefined,
+          moreOptions: matches.length > 3,
+          clarificationToken: ticket(user, input.cart as JamesCart, {
+            steps,
+            index,
+            choices: matches.slice(0, 3).map((p) => p.code),
+            candidates: matches.slice(0, 30).map((p) => p.code),
+          }),
           cart: input.cart,
+          draft: draft(step, user.block, "peça"),
         };
       const p = matches[0];
       if (step.action === "remove") {
@@ -566,6 +757,11 @@ export async function converseJames(
         return {
           reply: `Quantas unidades ou embalagens de ${p.name}? Cada embalagem tem ${p.packSize} ${p.unit || "un"}. Nenhuma alteracao foi aplicada.`,
           cart: input.cart,
+          draft: draft(
+            { ...step, query: p.code },
+            user.block,
+            "quantidade e unidade",
+          ),
           quantityPrompt: true,
           clarificationToken: ticket(user, input.cart as JamesCart, {
             steps,
@@ -582,8 +778,18 @@ export async function converseJames(
         step.action === "add" ? (existing?.quantity || 0) + qtty : qtty;
       if (total > (p.available ?? p.quantity))
         return {
-          reply: `${p.name}: ha apenas ${p.available ?? p.quantity} ${p.unit || "un"} disponiveis. Ajuste a quantidade. Nenhuma alteracao foi aplicada.`,
+          reply: `${p.name}: há apenas ${p.available ?? p.quantity} ${p.unit || "un"} disponíveis. Diga uma nova quantidade; a peça e a unidade foram mantidas.`,
           cart: input.cart,
+          draft: draft({ ...step, query: p.code }, user.block, "quantidade"),
+          quantityPrompt: true,
+          clarificationToken: ticket(user, input.cart as JamesCart, {
+            steps: steps.map((item, i) =>
+              i === index ? { ...item, query: p.code } : item,
+            ),
+            index,
+            choices: [p.code],
+            quantity: true,
+          }),
         };
       cart = cart.filter((e) => e.code !== p.code);
       cart.push({
@@ -863,6 +1069,39 @@ export async function converseJames(
           )}. Bloco ${user.block}, setor ${user.sector}. Para enviar, diga ou clique Confirmar requisição. Para desistir, Cancelar. Nada foi enviado ainda.`,
       );
     }
+  }
+  if (
+    steps.length === 1 &&
+    ["add", "set"].includes(steps[0].action) &&
+    JSON.stringify(cart) !== JSON.stringify(input.cart)
+  ) {
+    const last = cart.at(-1)!;
+    const part = byCode.get(last.code)!;
+    const amount =
+      steps[0].unit === "package"
+        ? `${steps[0].quantity} ${steps[0].quantity === 1 ? "caixa" : "caixas"} de ${part.packSize} (${last.quantity} ${part.unit || "un"} no total)`
+        : `${last.quantity} ${part.unit || "un"}`;
+    return {
+      reply: `Deseja colocar ${amount} de ${part.name} (${part.code}) no carrinho? Diga sim ou não.`,
+      cart: input.cart,
+      draft: draft(
+        { ...steps[0], query: part.code },
+        user.block,
+        "confirmação",
+      ),
+      proposedItems: describe(),
+      confirmationToken: ticket(
+        user,
+        cart,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+        input.cart as JamesCart,
+      ),
+      confirmationKind: "cart",
+    };
   }
   return {
     reply: replies.join("\n"),

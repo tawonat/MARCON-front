@@ -3,12 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { JamesCharacter, type JamesCharacterState } from "./JamesCharacter";
 import { useDemoStore } from "@/components/workspace/demo-store";
-import { useJamesVoice } from "./useJamesVoice";
-import {
-  choiceIndex,
-  explicitConfirmation,
-  speechText,
-} from "@/lib/james-voice";
+import { useJamesLocalVoice } from "./useJamesLocalVoice";
+import { choiceIndex, explicitConfirmation } from "@/lib/james-voice";
 import type { JamesCart } from "@/lib/james-actions";
 import type { JamesReportContext } from "@/lib/james-reports";
 import styles from "./JamesAssistant.module.css";
@@ -25,8 +21,22 @@ type Reply = {
     packSize: number;
     available: number;
   }[];
+  proposedItems?: Reply["items"];
+  draft?: {
+    action: string;
+    query: string;
+    purpose: string | null;
+    appearance: string | null;
+    material: string | null;
+    dimensions: string | null;
+    quantity: number | null;
+    unit: string | null;
+    block: string | null;
+    pending: string;
+    version: string;
+  };
   confirmationToken?: string;
-  confirmationKind?: "operation";
+  confirmationKind?: "operation" | "cart";
   operationCompleted?: boolean;
   clarificationToken?: string;
   formToken?: string;
@@ -39,6 +49,7 @@ type Reply = {
   exportHref?: string;
   navigate?: boolean;
   choices?: { code: string; name: string }[];
+  moreOptions?: boolean;
   dashboard?: {
     scope: string;
     period: string;
@@ -60,9 +71,10 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     [authorized, setAuthorized] = useState(true),
     [input, setInput] = useState(""),
     [state, setState] = useState<JamesCharacterState>("idle"),
-    [error, setError] = useState(""),
-    [provider, setProvider] = useState("nvidia");
+    [error, setError] = useState("");
   const [role, setRole] = useState("");
+  const [providerConfigured, setProviderConfigured] = useState(true);
+  const [speechError, setSpeechError] = useState("");
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (state !== "processing") return;
@@ -78,7 +90,8 @@ export default function JamesAssistant({ userId }: { userId: string }) {
   const reportContextRef = useRef<JamesReportContext | undefined>(undefined);
   const navigation = useRef<string[]>([]);
   useEffect(() => {
-    if (navigation.current.at(-1) !== pathname) navigation.current.push(pathname);
+    if (navigation.current.at(-1) !== pathname)
+      navigation.current.push(pathname);
     reportContextRef.current = undefined;
   }, [pathname]);
   const [messages, setMessages] = useState<{ user?: string; answer?: Reply }[]>(
@@ -87,7 +100,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     [review, setReview] = useState<{
       token: string;
       cart: string;
-      kind?: "operation";
+      kind?: "operation" | "cart";
     } | null>(null);
   const dialog = useRef<HTMLDialogElement>(null),
     symbol = useRef<HTMLDivElement>(null),
@@ -96,7 +109,10 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     log = useRef<HTMLDivElement>(null),
     pending = useRef<AbortController | null>(null),
     confirming = useRef(false),
-    speech = useRef<SpeechSynthesisUtterance | null>(null),
+    speech = useRef<HTMLAudioElement | null>(null),
+    speechRequest = useRef<AbortController | null>(null),
+    speechUrl = useRef<string | null>(null),
+    lastSpeech = useRef(""),
     suppress = useRef(0),
     cartRef = useRef(cart),
     reviewRef = useRef(review);
@@ -119,13 +135,16 @@ export default function JamesAssistant({ userId }: { userId: string }) {
   const stopSpeech = useCallback(() => {
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
     const wasSpeaking = !!speech.current;
+    speechRequest.current?.abort();
+    speechRequest.current = null;
     if (speech.current) {
-      speech.current.onend = null;
+      speech.current.onended = null;
       speech.current.onerror = null;
-      speech.current.onboundary = null;
+      speech.current.pause();
       speech.current = null;
     }
-    window.speechSynthesis?.cancel();
+    if (speechUrl.current) URL.revokeObjectURL(speechUrl.current);
+    speechUrl.current = null;
     suppress.current = wasSpeaking ? Date.now() + 600 : 0;
     // Wait for the speaker tail before resuming recognition.
     if (wasSpeaking)
@@ -141,7 +160,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     setOpen(true);
     dialog.current?.showModal();
   }, []);
-  const voice = useJamesVoice(
+  const voice = useJamesLocalVoice(
     (text) => {
       if (Date.now() < suppress.current) return;
       show();
@@ -161,7 +180,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
   );
   const stopVoice = voice.stop;
   function pause() {
-    stopVoice();
+    voice.pause();
     stopSpeech();
     pending.current?.abort();
     pending.current = null;
@@ -181,73 +200,53 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     launcher.current?.focus();
   }
   function speak(text: string) {
-    if (!preferences.voice || !window.speechSynthesis) return;
-    const voices = window.speechSynthesis
-      .getVoices()
-      .filter((v) => v.localService);
-    const local =
-      voices.find((v) => /^pt[-_]BR$/i.test(v.lang)) ||
-      voices.find((v) => v.lang.startsWith("pt"));
-    if (!local) {
-      setError(
-        "Voz local em português indisponível. Leia a resposta ou instale uma voz no sistema.",
-      );
-      return;
-    }
+    if (!preferences.voice) return;
+    lastSpeech.current = text;
+    setSpeechError("");
     stopSpeech();
-    // Disable the recognizer while TTS speaks: its own summary must never confirm a request.
+    // The microphone remains open but its gate is disabled until playback ends.
     voice.suspend();
     suppress.current = Infinity;
-    const u = new SpeechSynthesisUtterance(speechText(text));
-    u.voice = local;
-    u.lang = "pt-BR";
-    u.rate = 0.96;
-    u.pitch = 1;
-    speech.current = u;
-    setState("speaking");
-    u.onboundary = () => {
-      if (
-        matchMedia("(prefers-reduced-motion: reduce), (update: slow)").matches
-      )
-        return;
-      const core = symbol.current?.querySelector("[data-james-core]");
-      core?.getAnimations().forEach((animation) => animation.cancel());
-      core?.animate([{ opacity: 0.45 }, { opacity: 1 }, { opacity: 0.65 }], {
-        duration: 220,
-      });
-      symbol.current?.querySelector(`.${styles.orbit}`)?.animate(
-        [
-          { opacity: 0.4, transform: "rotate(-10deg) scale(1)" },
-          { opacity: 1, transform: "rotate(-10deg) scale(1.08)" },
-          { opacity: 0.4, transform: "rotate(-10deg) scale(1)" },
-        ],
-        { duration: 220 },
-      );
-      symbol.current
-        ?.querySelectorAll(`.${styles.particle}`)
-        .forEach((p, i) => {
-          p.animate(
-            [
-              { opacity: 0, transform: "translateY(0)" },
-              { opacity: 0.7 },
-              { opacity: 0, transform: "translateY(-25px)" },
-            ],
-            { duration: 240, delay: i * 20 },
-          );
-        });
-    };
+    const request = new AbortController();
+    speechRequest.current = request;
     const finish = () => {
+      if (speechRequest.current !== request) return;
       suppress.current = Date.now() + 800;
       speech.current = null;
+      speechRequest.current = null;
+      if (speechUrl.current) URL.revokeObjectURL(speechUrl.current);
+      speechUrl.current = null;
       resumeTimer.current = setTimeout(() => resumeVoice.current(), 850);
       setState(reviewRef.current ? "confirming" : "idle");
     };
-    u.onend = finish;
-    u.onerror = () => {
+    void fetch("/api/james/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.slice(0, 700) }),
+      signal: request.signal,
+    }).then(async (response) => {
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        throw new Error(data?.error || "Voz local indisponível.");
+      }
+      if (request.signal.aborted) return;
+      const url = URL.createObjectURL(await response.blob());
+      if (request.signal.aborted) { URL.revokeObjectURL(url); return; }
+      speechUrl.current = url;
+      const audio = new Audio(url);
+      speech.current = audio;
+      audio.onended = finish;
+      audio.onerror = () => {
+        finish();
+        setSpeechError("Falha na reprodução do áudio. A resposta continua no texto.");
+      };
+      await audio.play();
+      if (!audio.paused && speech.current === audio) setState("speaking");
+    }).catch((cause) => {
+      if (request.signal.aborted) return;
       finish();
-      setError("Falha na voz. A resposta continua no texto.");
-    };
-    window.speechSynthesis.speak(u);
+      setSpeechError(`${cause instanceof Error ? cause.message : "Voz local indisponível."} A resposta continua no texto.`);
+    });
   }
   function minimize() {
     stopSpeech();
@@ -256,18 +255,56 @@ export default function JamesAssistant({ userId }: { userId: string }) {
   }
   async function send(text: string, confirm = false, resolveToken?: string) {
     if (!text.trim()) return;
-    const localCommand = text.trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[.!?]+$/, "");
-    if (["pausar escuta","desligar escuta","ficar parado","silenciar dicas","ativar dicas","recolher","voltar"].includes(localCommand)) {
-      if (localCommand.endsWith("escuta")) { pause(); return; }
-      if (localCommand === "recolher") { close(); return; }
-      if (localCommand === "voltar") {
-        if (navigation.current.length > 1) { navigation.current.pop(); minimize(); router.push(navigation.current.at(-1)!); }
-        else setError("Não há uma tela anterior desta sessão. Diga abra catálogo ou histórico.");
+    const localCommand = text
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[.!?]+$/, "");
+    if (
+      [
+        "pausar escuta",
+        "desligar escuta",
+        "ficar parado",
+        "silenciar dicas",
+        "ativar dicas",
+        "recolher",
+        "voltar",
+      ].includes(localCommand)
+    ) {
+      if (localCommand.endsWith("escuta")) {
+        pause();
         return;
       }
-      updatePreferences(localCommand === "ficar parado" ? {still:true} : {quiet:localCommand === "silenciar dicas"});
-      const reply = localCommand === "ficar parado" ? "Vou permanecer na posição segura." : localCommand === "silenciar dicas" ? "Dicas silenciadas." : "Dicas ativadas.";
-      setMessages(m=>[...m,{answer:{reply}}]); speak(reply); return;
+      if (localCommand === "recolher") {
+        close();
+        return;
+      }
+      if (localCommand === "voltar") {
+        if (navigation.current.length > 1) {
+          navigation.current.pop();
+          minimize();
+          router.push(navigation.current.at(-1)!);
+        } else
+          setError(
+            "Não há uma tela anterior desta sessão. Diga abra catálogo ou histórico.",
+          );
+        return;
+      }
+      updatePreferences(
+        localCommand === "ficar parado"
+          ? { still: true }
+          : { quiet: localCommand === "silenciar dicas" },
+      );
+      const reply =
+        localCommand === "ficar parado"
+          ? "Vou permanecer na posição segura."
+          : localCommand === "silenciar dicas"
+            ? "Dicas silenciadas."
+            : "Dicas ativadas.";
+      setMessages((m) => [...m, { answer: { reply } }]);
+      speak(reply);
+      return;
     }
     const currentReview = reviewRef.current;
     if (/^(cancelar|cancele|nao|não)[.!]?$/i.test(text.trim())) {
@@ -318,7 +355,8 @@ export default function JamesAssistant({ userId }: { userId: string }) {
     }
     if (
       explicitConfirmation(text) ||
-      /^(?:sim[, ]+)?confirmar a[cç][aã]o[.!]?$/i.test(text.trim())
+      /^(?:sim[, ]+)?confirmar a[cç][aã]o[.!]?$/i.test(text.trim()) ||
+      (currentReview && /^sim[.!]?$/i.test(text.trim()))
     )
       confirm = true;
     if (
@@ -350,10 +388,13 @@ export default function JamesAssistant({ userId }: { userId: string }) {
             ? {
                 mode: "confirm",
                 token: currentReview!.token,
+                cart: cartRef.current,
                 confirmation:
                   currentReview!.kind === "operation"
                     ? "confirmar acao"
-                    : "confirmar requisicao",
+                    : currentReview!.kind === "cart"
+                      ? "confirmar carrinho"
+                      : "confirmar requisicao",
               }
             : {
                 message: text,
@@ -368,6 +409,9 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                   resolveToken ||
                   (clarification &&
                   (messages.at(-1)?.answer?.quantityPrompt ||
+                    /^(?:mais opções|na verdade[, ]*\d+|corrija a quantidade|[\wÀ-ÿ]+(?:\s+(?:de\s+)?[\wÀ-ÿ]+){0,4})[.!]?$/i.test(
+                      text.trim(),
+                    ) ||
                     messages
                       .at(-1)
                       ?.answer?.choices?.some(
@@ -380,7 +424,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
         ),
         signal: AbortSignal.any([
           controller.signal,
-          AbortSignal.timeout(50000),
+          AbortSignal.timeout(30000),
         ]),
       });
       const data: Reply = await r.json();
@@ -428,7 +472,9 @@ export default function JamesAssistant({ userId }: { userId: string }) {
       } else if (data.reply) speak(data.reply);
     } catch (e) {
       if (!controller.signal.aborted) {
-        setError(e instanceof Error ? e.message : "Falha de rede.");
+        const message = e instanceof Error ? e.message : "Falha de rede.";
+        setError(message);
+        setMessages((m) => [...m, { answer: { reply: `Não consegui responder: ${message}` } }]);
         setInput(text);
         setState(currentReview ? "confirming" : "idle");
       }
@@ -467,8 +513,8 @@ export default function JamesAssistant({ userId }: { userId: string }) {
           setMessages([]);
           dialog.current?.close();
         } else if (r.ok) {
-          setProvider(data.provider);
           setRole(data.role);
+          setProviderConfigured(data.providerConfigured !== false);
         }
       } catch {
         /* Every request also validates the session. */
@@ -592,9 +638,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
         />
         <span>
           {voice.capturing
-            ? voice.mode === "browser"
-              ? "James · escuta online ativa"
-              : "James · escuta ativa"
+            ? "James · escuta local ativa"
             : voice.listening
               ? "James · escuta em espera"
               : "James"}
@@ -723,6 +767,21 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                     {m.user || (
                       <>
                         <p>{m.answer?.reply}</p>
+                        {m.answer?.draft && (
+                          <p>
+                            Pedido atual:{" "}
+                            {m.answer.draft.quantity ?? "quantidade pendente"}{" "}
+                            {m.answer.draft.unit === "package"
+                              ? "caixas"
+                              : m.answer.draft.unit === "unit"
+                                ? "unidades"
+                                : ""}{" "}
+                            de {m.answer.draft.query || "peça pendente"}. Falta:{" "}
+                            {m.answer.draft.pending}.
+                            {m.answer.draft.purpose && ` Uso informado: ${m.answer.draft.purpose}.`}
+                            {m.answer.draft.dimensions && ` Medida informada: ${m.answer.draft.dimensions}.`}
+                          </p>
+                        )}
                         {m.answer?.choices?.map((p, index) => (
                           <button
                             key={p.code}
@@ -747,6 +806,21 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                             {index + 1}. {p.code} · {p.name}
                           </button>
                         ))}
+                        {m.answer?.clarificationToken === clarification &&
+                          m.answer.moreOptions && (
+                            <button
+                              disabled={state === "processing"}
+                              onClick={() =>
+                                void send(
+                                  "Mais opções",
+                                  false,
+                                  m.answer!.clarificationToken,
+                                )
+                              }
+                            >
+                              Mais opções
+                            </button>
+                          )}
                         {m.answer?.items?.length ? (
                           <details open>
                             <summary>Carrinho revisado</summary>
@@ -760,6 +834,17 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                               ))}
                             </ul>
                           </details>
+                        ) : null}
+                        {m.answer?.proposedItems?.length ? (
+                          <p>
+                            Pedido proposto:{" "}
+                            {m.answer.proposedItems
+                              .map(
+                                (p) =>
+                                  `${p.quantity} ${p.unit} de ${p.name} (${p.code})`,
+                              )
+                              .join("; ")}
+                          </p>
                         ) : null}
                         {m.answer?.result?.ids && (
                           <p>
@@ -823,29 +908,49 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                     : `Ainda processando (${elapsed}s). Você pode interromper. Limite: 45 segundos.`
                   : state === "speaking"
                     ? "Falando. Você pode interromper."
+                    : voice.transcribing
+                      ? "Fala detectada. Transcrevendo no servidor…"
                     : validReview
                       ? "Aguardando sua confirmação explícita."
+                      : voice.hearing
+                        ? "Ouvindo sua fala…"
                       : voice.capturing
-                        ? voice.mode === "browser"
-                          ? "Ouvindo pelo serviço de voz do navegador. Diga James ou continue a conversa."
-                          : "Ouvindo localmente. Diga James ou continue a conversa."
+                        ? `Ouvindo ${voice.mode === "browser" ? "pelo navegador" : "pelo servidor"}. Diga James ou continue a conversa.`
                         : voice.listening
                           ? voice.hidden
                             ? "Escuta em espera. Retoma ao voltar para esta aba."
-                            : "Reconectando a escuta. Aguardando o navegador."
-                          : voice.installing
-                            ? "Instalando português local. A escuta começará ao terminar."
-                            : "Pronto. Digite ou ative a escuta."}
+                            : "Escuta pronta."
+                          : voice.permissionDenied
+                            ? "Sem permissão para o microfone. Você pode digitar."
+                            : voice.paused
+                              ? "Escuta pausada. Ative para retomar."
+                              : "Pronto. Digite ou ative a escuta."}
               </p>
+              {!providerConfigured && (
+                <p role="alert" className={styles.error}>
+                  Conversa com IA indisponível: configure NVIDIA_API_KEY no servidor e reinicie o aplicativo.
+                </p>
+              )}
               {voice.transcript && (
                 <p className={styles.transcript}>
-                  Você disse: {voice.transcript}
+                  {voice.transcriptFinal
+                    ? "Você disse: "
+                    : "Transcrição parcial: "}
+                  {voice.transcript}
                 </p>
               )}
               {error && (
                 <p role="alert" className={styles.error}>
                   {error}
                 </p>
+              )}
+              {speechError && (
+                <div className={styles.actions}>
+                  <p role="alert" className={styles.error}>{speechError}</p>
+                  <button type="button" onClick={() => speak(lastSpeech.current)}>
+                    Tentar falar novamente
+                  </button>
+                </div>
               )}
               {validReview && (
                 <div className={styles.actions}>
@@ -855,14 +960,18 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                       void send(
                         review?.kind === "operation"
                           ? "Confirmar ação"
-                          : "Confirmar requisição",
+                          : review?.kind === "cart"
+                            ? "Sim, adicionar"
+                            : "Confirmar requisição",
                         true,
                       )
                     }
                   >
                     {review?.kind === "operation"
                       ? "Confirmar ação"
-                      : "Confirmar requisição"}
+                      : review?.kind === "cart"
+                        ? "Sim, adicionar"
+                        : "Confirmar requisição"}
                   </button>
                   <button
                     disabled={state === "processing"}
@@ -894,45 +1003,13 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                   >
                     Enviar
                   </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      voice.listening ? pause() : void voice.start(voice.mode)
-                    }
-                    disabled={voice.installing}
-                  >
-                    {voice.listening ? "Desligar escuta" : "Ativar escuta"}
+                  <button type="button" onClick={() => voice.listening ? pause() : void voice.start()}>
+                    {voice.listening ? "Pausar escuta" : "Ativar escuta"}
                   </button>
-                  {voice.installable && (
-                    <button
-                      type="button"
-                      disabled={voice.installing}
-                      onClick={() => void voice.install()}
-                    >
-                      Instalar português local
-                    </button>
-                  )}
-                  {voice.installing && (
-                    <button type="button" onClick={pause}>
-                      Cancelar ativação
-                    </button>
-                  )}
                   {voice.browserFallback && !voice.listening && (
-                    <div className={styles.voiceFallback}>
-                      <p>
-                        Alternativa online: o serviço de voz do navegador pode
-                        receber áudio enquanto a escuta estiver ligada,
-                        inclusive antes de você dizer James. Não é a API NVIDIA.
-                        Ative apenas se concordar.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={voice.installing}
-                        onClick={() => void voice.start("browser")}
-                      >
-                        Ativar voz online
-                      </button>
-                    </div>
+                    <button type="button" onClick={() => voice.startBrowser()}>
+                      Usar reconhecimento do navegador
+                    </button>
                   )}
                   {state === "processing" && (
                     <button
@@ -1005,7 +1082,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                       checked={voice.listening}
                       onChange={(e) =>
                         e.target.checked
-                          ? void voice.start(voice.mode)
+                          ? void voice.start()
                           : pause()
                       }
                     />
@@ -1038,20 +1115,15 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                   Ler respostas com voz local
                 </label>
                 <details className={styles.privacy}>
-                  <summary>
-                    Privacidade · {provider === "nvidia" ? "NVIDIA" : "Ollama"}{" "}
-                    · voz {voice.mode === "browser" ? "online" : "local"}
-                  </summary>
+                  <summary>Privacidade · NVIDIA · voz no servidor MARCON</summary>
                   <small>
-                    {provider === "nvidia"
-                      ? "Seu comando em texto e os itens do carrinho são processados pela NVIDIA."
-                      : "O modelo processa o texto no Ollama local."}{" "}
-                    {voice.mode === "browser"
-                      ? "Voz online autorizada: o áudio pode ser processado pelo serviço do navegador enquanto a escuta estiver ativa."
-                      : "No modo local, áudio e despertar ficam no dispositivo."}{" "}
+                    Seu comando em texto e os itens do carrinho são processados
+                    pela NVIDIA. Após ativar o microfone, trechos de fala são transcritos no servidor MARCON;
+                    áudio bruto não é guardado após o processamento.{" "}
                     Após ativar, a escuta continua ao recolher James e navegar.
                     Pausa na aba oculta e retoma ao voltar. Para encerrar, use
                     Desligar escuta ou saia da conta.
+                    O reconhecimento do navegador é opcional quando a transcrição local está indisponível; conforme o navegador, o áudio pode ser processado pelo serviço dele. Ele só inicia após clicar em “Usar reconhecimento do navegador”.
                   </small>
                 </details>
                 {voice.listening && (

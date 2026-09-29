@@ -161,6 +161,11 @@ export function StockScreen({
       name,
       code,
       qrCode,
+      description: String(data.get("description") ?? "").trim(),
+      purpose: String(data.get("purpose") ?? "").trim(),
+      material: String(data.get("material") ?? "").trim(),
+      dimensions: String(data.get("dimensions") ?? "").trim(),
+      approvedAliases: String(data.get("approvedAliases") ?? "").split(",").map((alias) => alias.trim()).filter(Boolean),
       quantity:
         (stock.find((item) => item.id === editing?.id)?.quantity ?? 0) + change,
       packSize,
@@ -428,6 +433,26 @@ export function StockScreen({
                     required
                     maxLength={80}
                   />
+                </label>
+                <label>
+                  Descrição da peça
+                  <textarea name="description" defaultValue={editing?.description ?? ""} maxLength={1000} />
+                </label>
+                <label>
+                  Finalidade conhecida
+                  <input name="purpose" defaultValue={editing?.purpose ?? ""} maxLength={500} placeholder="Ex.: prender tampa de inspeção" />
+                </label>
+                <label>
+                  Material
+                  <input name="material" defaultValue={editing?.material ?? ""} maxLength={120} />
+                </label>
+                <label>
+                  Dimensões e rosca oficiais
+                  <input name="dimensions" defaultValue={editing?.dimensions ?? ""} maxLength={120} placeholder="Ex.: M8 × 30 mm" />
+                </label>
+                <label>
+                  Apelidos revisados (separados por vírgula)
+                  <input name="approvedAliases" defaultValue={editing?.approvedAliases?.join(", ") ?? ""} maxLength={960} />
                 </label>
                 <label>
                   Criticidade

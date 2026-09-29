@@ -590,7 +590,7 @@ test("voice UI, wake, chained requests, cancel, local microphone cleanup and res
     "true",
   );
   await expect(
-    page.getByText("Você disse: James, coloque sete caixas"),
+    page.getByText("Transcrição parcial: James, coloque sete caixas"),
   ).toBeVisible();
   const say = async (text: string) =>
     page.evaluate((text) => {

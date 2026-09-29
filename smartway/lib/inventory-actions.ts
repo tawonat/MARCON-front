@@ -78,6 +78,14 @@ export async function executeInventoryAction(
         throw new ActionError("Criticidade deve ser 1, 2 ou 3.");
       const unit = text(d.unit, 24) || "un",
         category = text(d.category, 80) || "Peças";
+      const aliases = Array.isArray(d.approvedAliases) ? d.approvedAliases : [];
+      if (aliases.length > 12 || aliases.some((alias) => typeof alias !== "string" || !alias.trim() || alias.length > 80))
+        throw new ActionError("Use até 12 apelidos revisados de 80 caracteres.");
+      const approvedAliases = [...new Set(aliases.map((alias) => String(alias).trim()))];
+      const description = text(d.description, 1000),
+        purpose = text(d.purpose, 500),
+        material = text(d.material, 120),
+        dimensions = text(d.dimensions, 120);
       const image =
         typeof d.image === "string" &&
         /^data:image\/(png|jpeg|webp);base64,/.test(d.image) &&
@@ -88,7 +96,7 @@ export async function executeInventoryAction(
       if (id) {
         const old = await partLock(c, null, id);
         await c.execute(
-          "UPDATE parts SET name=?,code=?,qr_code=?,pack_size=?,minimum_total=?,lead_days=?,reference_unit_price=?,location=?,image_url=?,unit=?,category=?,criticality=? WHERE id=?",
+          "UPDATE parts SET name=?,code=?,qr_code=?,pack_size=?,minimum_total=?,lead_days=?,reference_unit_price=?,location=?,image_url=?,unit=?,category=?,criticality=?,description=?,purpose=?,material=?,dimensions=?,approved_aliases=? WHERE id=?",
           [
             name,
             code,
@@ -102,12 +110,17 @@ export async function executeInventoryAction(
             unit,
             category,
             criticality,
+            description,
+            purpose,
+            material,
+            dimensions,
+            JSON.stringify(approvedAliases),
             id,
           ],
         );
       } else {
         const [r] = await c.execute<ResultSetHeader>(
-          "INSERT INTO parts(name,code,qr_code,pack_size,minimum_total,lead_days,reference_unit_price,location,image_url,unit,category,criticality) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO parts(name,code,qr_code,pack_size,minimum_total,lead_days,reference_unit_price,location,image_url,unit,category,criticality,description,purpose,material,dimensions,approved_aliases) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
           [
             name,
             code,
@@ -121,6 +134,11 @@ export async function executeInventoryAction(
             unit,
             category,
             criticality,
+            description,
+            purpose,
+            material,
+            dimensions,
+            JSON.stringify(approvedAliases),
           ],
         );
         pId = r.insertId;

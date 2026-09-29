@@ -103,15 +103,17 @@ export function explicitCartPlan(value: string): JamesStep[] | undefined {
       continue;
     }
     const item = clause.match(
-      /^(?:(adicione|coloque|inclua)\s+)?(\d+)\s+(?:(caixas?|embalagens?|unidades?)\s+(?:de\s+)?)?(.+)$/,
+      /^(?:(adicione|coloque|inclua|quero|preciso de)\s+)?(\d+)\s+(?:(caixas?|embalagens?|unidades?)\s+(?:de\s+)?)?(.+)$/,
     );
     if (item && (item[1] || adding)) {
       adding = true;
+      const purpose = item[4].match(/\s+para\s+((?:prender|fixar|instalar|montar|usar|repor)\b.+)$/);
       steps.push({
         action: "add",
         quantity: Number(item[2]),
         unit: /^(caixa|embalage)/.test(item[3] || "") ? "package" : "unit",
-        query: item[4],
+        query: purpose ? item[4].slice(0, purpose.index).trim() : item[4],
+        purpose: purpose?.[1],
       });
       continue;
     }

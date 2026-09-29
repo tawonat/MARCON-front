@@ -52,6 +52,6 @@ F = funcionário; L = líder (somente seu bloco); M = almoxarife; A = admin.
 
 ## Configuração
 
-`JAMES_PROVIDER=nvidia` + `NVIDIA_API_KEY` no servidor; modelo `openai/gpt-oss-20b`. Alternativa: `JAMES_PROVIDER=ollama`, `OLLAMA_URL` local e `OLLAMA_MODEL`. Migrações existentes, incluindo `004_request_submissions`, devem estar aplicadas. Não foi criada uma segunda base de estoque ou autenticação.
+`NVIDIA_API_KEY` no servidor; `NVIDIA_MODEL` opcional (padrão `openai/gpt-oss-20b`). Migrações existentes, incluindo `004_request_submissions`, devem estar aplicadas. Não foi criada uma segunda base de estoque ou autenticação.
 
 Transcrição: Web Speech API local quando disponível; opção online exige aceite explícito e pode enviar áudio ao serviço do navegador. Síntese: voz portuguesa local do sistema. Ative **Ativar escuta** uma vez; recolher e navegar preservam a intenção de escuta. Não funciona com aba fechada e não promete captura em segundo plano.

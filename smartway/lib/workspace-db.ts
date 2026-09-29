@@ -128,6 +128,11 @@ export async function workspaceSnapshot(
         .toISOString()
         .slice(0, 10);
     const stock: Part[] = pr.map((p) => {
+      let approvedAliases: string[] = [];
+      try {
+        const aliases = typeof p.approved_aliases === "string" ? JSON.parse(p.approved_aliases) : p.approved_aliases;
+        if (Array.isArray(aliases)) approvedAliases = aliases.filter((alias): alias is string => typeof alias === "string");
+      } catch { /* Earlier rows may have no search metadata. */ }
       const loc = balances.filter((b) => b.partCode === p.code),
         withdrawals = movements.filter(
           (m) => m.partCode === p.code && m.kind === "saida",
@@ -135,6 +140,11 @@ export async function workspaceSnapshot(
       return {
         id: Number(p.id),
         name: String(p.name),
+        description: p.description ? String(p.description) : undefined,
+        purpose: p.purpose ? String(p.purpose) : undefined,
+        material: p.material ? String(p.material) : undefined,
+        dimensions: p.dimensions ? String(p.dimensions) : undefined,
+        approvedAliases,
         code: String(p.code),
         qrCode: String(p.qr_code),
         quantity: loc.reduce((s, b) => s + b.quantity, 0),
