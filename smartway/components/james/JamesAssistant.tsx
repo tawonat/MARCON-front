@@ -928,7 +928,7 @@ export default function JamesAssistant({ userId }: { userId: string }) {
               </p>
               {!providerConfigured && (
                 <p role="alert" className={styles.error}>
-                  Conversa com IA indisponível: configure NVIDIA_API_KEY no servidor e reinicie o aplicativo.
+                  Conversa com IA indisponível: configure OPENAI_API_KEY no servidor e reinicie o aplicativo.
                 </p>
               )}
               {voice.transcript && (
@@ -1115,10 +1115,10 @@ export default function JamesAssistant({ userId }: { userId: string }) {
                   Ler respostas com voz local
                 </label>
                 <details className={styles.privacy}>
-                  <summary>Privacidade · NVIDIA · voz no servidor MARCON</summary>
+                  <summary>Privacidade · OpenAI · voz no servidor MARCON</summary>
                   <small>
                     Seu comando em texto e os itens do carrinho são processados
-                    pela NVIDIA. Após ativar o microfone, trechos de fala são transcritos no servidor MARCON;
+                    pela OpenAI. Após ativar o microfone, trechos de fala são transcritos no servidor MARCON;
                     áudio bruto não é guardado após o processamento.{" "}
                     Após ativar, a escuta continua ao recolher James e navegar.
                     Pausa na aba oculta e retoma ao voltar. Para encerrar, use

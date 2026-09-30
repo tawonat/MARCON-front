@@ -51,20 +51,20 @@ export async function jamesPlan(
     },
     { role: "user", content: JSON.stringify({ context, message }) },
   ];
-  const url = "https://integrate.api.nvidia.com/v1/chat/completions";
+  const url = "https://api.openai.com/v1/chat/completions";
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (!process.env.NVIDIA_API_KEY)
-    throw new ActionError("NVIDIA_API_KEY nao configurada no servidor.", 503);
-  headers.Authorization = `Bearer ${process.env.NVIDIA_API_KEY}`;
+  if (!process.env.OPENAI_API_KEY?.trim())
+    throw new ActionError("OPENAI_API_KEY nao configurada no servidor.", 503);
+  headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY.trim()}`;
   const body = {
-    model: process.env.NVIDIA_MODEL?.trim() || "openai/gpt-oss-20b",
+    model: process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini",
     messages,
     temperature: 0.1,
     // Plans are compact JSON; cap runaway completions without changing the prompt.
-    max_tokens: 768,
-    reasoning_effort: "low",
+    max_completion_tokens: 768,
+    response_format: { type: "json_object" },
     stream: false,
   };
   const response = await fetch(url, {

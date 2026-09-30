@@ -15,8 +15,8 @@ export async function GET() {
           authenticated: true,
           userId: user.id,
           role: user.role,
-          provider: "nvidia",
-          providerConfigured: Boolean(process.env.NVIDIA_API_KEY?.trim()),
+          provider: "openai",
+          providerConfigured: Boolean(process.env.OPENAI_API_KEY?.trim()),
         })
       : json({ error: "Faca login." }, 401);
   } catch {

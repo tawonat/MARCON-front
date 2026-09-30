@@ -127,27 +127,26 @@ test.afterAll(async () => {
   }
   await pool.end();
 });
-test("NVIDIA adapter: secret stays in backend, fixed endpoint/model and no reasoning output", async () => {
-  const oldProvider = process.env.JAMES_PROVIDER,
-    oldKey = process.env.NVIDIA_API_KEY,
+test("OpenAI adapter: secret stays in backend, fixed endpoint/model and no reasoning output", async () => {
+  const oldModel = process.env.OPENAI_MODEL,
+    oldKey = process.env.OPENAI_API_KEY,
     original = global.fetch;
   try {
-    process.env.JAMES_PROVIDER = "nvidia";
-    delete process.env.NVIDIA_API_KEY;
+    delete process.env.OPENAI_MODEL;
+    delete process.env.OPENAI_API_KEY;
     await expect(
       jamesPlan("oi", {}, new AbortController().signal),
-    ).rejects.toThrow("NVIDIA_API_KEY");
-    process.env.NVIDIA_API_KEY = "test-only-key";
+    ).rejects.toThrow("OPENAI_API_KEY");
+    process.env.OPENAI_API_KEY = "test-only-key";
     global.fetch = async (url, options) => {
       expect(String(url)).toBe(
-        "https://integrate.api.nvidia.com/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
       );
       expect(new Headers(options?.headers).get("Authorization")).toBe(
         "Bearer test-only-key",
       );
-      expect(JSON.parse(String(options?.body)).model).toBe(
-        "openai/gpt-oss-20b",
-      );
+      expect(JSON.parse(String(options?.body)).model).toBe("gpt-4.1-mini");
+      expect(JSON.parse(String(options?.body)).response_format).toEqual({ type: "json_object" });
       return Response.json({
         choices: [
           {
@@ -166,10 +165,10 @@ test("NVIDIA adapter: secret stays in backend, fixed endpoint/model and no reaso
     ).toEqual([{ action: "find", query: "parafuso" }]);
   } finally {
     global.fetch = original;
-    if (oldProvider === undefined) delete process.env.JAMES_PROVIDER;
-    else process.env.JAMES_PROVIDER = oldProvider;
-    if (oldKey === undefined) delete process.env.NVIDIA_API_KEY;
-    else process.env.NVIDIA_API_KEY = oldKey;
+    if (oldModel === undefined) delete process.env.OPENAI_MODEL;
+    else process.env.OPENAI_MODEL = oldModel;
+    if (oldKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = oldKey;
   }
 });
 test("wake words and explicit confirmation never infer consent", () => {
