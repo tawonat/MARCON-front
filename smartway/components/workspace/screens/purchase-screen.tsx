@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { Download, Search } from "lucide-react";
-import { heading, badge } from "../ui";
+import { heading } from "../ui";
 import { useDemoStore } from "../demo-store";
 import type { Part } from "@/lib/demo-data";
+import { DashboardDialog } from "../operations/dashboard-dialog";
 
 type PurchaseItem = {
   item: Part;
@@ -26,6 +27,7 @@ export function PurchaseScreen({
   const [warehouse, setWarehouse] = useState("Todos");
   const [risk, setRisk] = useState("Todos");
   const [order, setOrder] = useState("risk");
+  const [selected, setSelected] = useState<PurchaseItem | null>(null);
 
   function costFor(item: Part) {
     const draft = draftCosts[item.code];
@@ -41,7 +43,11 @@ export function PurchaseScreen({
         await runAction({ type: "updatePrice", code: item.code, price: value });
         setSaveError("");
       } catch (error) {
-        setSaveError(error instanceof Error ? error.message : "Não foi possível salvar o preço.");
+        setSaveError(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível salvar o preço.",
+        );
       }
       return;
     }
@@ -83,6 +89,12 @@ export function PurchaseScreen({
   );
   const ruptureCount = visibleItems.filter(
     ({ projection }) => projection.arrival < 0,
+  ).length;
+  const emptyCount = visibleItems.filter(
+    ({ item }) => item.quantity <= 0,
+  ).length;
+  const criticalCount = visibleItems.filter(
+    ({ item }) => item.quantity > 0 && item.quantity < item.minimum,
   ).length;
 
   function exportCsv() {
@@ -132,18 +144,26 @@ export function PurchaseScreen({
         "Compra preditiva",
         "Projeção de reposição de peças baseada no consumo e no prazo de fornecimento.",
       )}
-      {saveError && <div className="info" role="alert">{saveError}</div>}
-      <div className="info">
-        <strong>{persistent ? "Planejamento de compras" : "Simulação para avaliação"}</strong>
-        <p>
-          Edite o valor unitário de referência para simular o investimento. O
-          custo cadastrado é uma referência e não representa cotação de mercado.
-        </p>
-      </div>
-      <section
+      {saveError && (
+        <div className="info" role="alert">
+          {saveError}
+        </div>
+      )}
+      <p
+        className={
+          "purchase-intro " + (ruptureCount ? "needs-attention" : "is-healthy")
+        }
+      >
+        {ruptureCount
+          ? `▲ ${ruptureCount} peças podem faltar antes da próxima entrega.`
+          : "✓ Nenhuma peça com ruptura prevista neste recorte."}{" "}
+        Toque em uma peça para entender a sugestão.
+      </p>
+      <details
         className="panel purchase-filters"
         aria-label="Filtros de compra preditiva"
       >
+        <summary>Buscar e filtrar peças</summary>
         <div className="panel-head">
           <div>
             <h2>Priorizar compras</h2>
@@ -205,7 +225,7 @@ export function PurchaseScreen({
             </select>
           </label>
         </div>
-      </section>
+      </details>
       <div className="prediction-summary">
         <div className="stat">
           <span>Peças com compra sugerida</span>
@@ -223,51 +243,115 @@ export function PurchaseScreen({
           <small>Valores editáveis desta sessão</small>
         </div>
       </div>
+      <section
+        className="panel purchase-visual-summary"
+        aria-label="Panorama das compras sugeridas"
+      >
+        <div className="panel-head">
+          <div>
+            <h2>Onde agir primeiro</h2>
+            <p>Estado do saldo atual das peças no recorte filtrado.</p>
+          </div>
+        </div>
+        <div className="purchase-status-strip">
+          {emptyCount > 0 && (
+            <span className="empty" style={{ flex: emptyCount }} />
+          )}
+          {criticalCount > 0 && (
+            <span className="critical" style={{ flex: criticalCount }} />
+          )}
+          {visibleItems.length - emptyCount - criticalCount > 0 && (
+            <span
+              className="ok"
+              style={{
+                flex: Math.max(
+                  0,
+                  visibleItems.length - emptyCount - criticalCount,
+                ),
+              }}
+            />
+          )}
+        </div>
+        <div className="purchase-status-legend">
+          {emptyCount > 0 && (
+            <span>
+              <i className="empty" />
+              Estoque vazio: {emptyCount}
+            </span>
+          )}
+          {criticalCount > 0 && (
+            <span>
+              <i className="critical" />
+              Crítico: {criticalCount}
+            </span>
+          )}
+          {visibleItems.length - emptyCount - criticalCount > 0 && (
+            <span>
+              <i className="ok" />
+              Acompanhar:{" "}
+              {Math.max(0, visibleItems.length - emptyCount - criticalCount)}
+            </span>
+          )}
+        </div>
+      </section>
       {visibleItems.length ? (
         <div className="stock-grid">
           {visibleItems.map(({ item, projection }) => (
             <article className="panel stock-card" key={item.code}>
               <div className="card-line">
-                {badge(
-                  projection.arrival < 0
-                    ? "Risco de ruptura"
-                    : "Reposição sugerida",
-                )}
+                <span
+                  className={
+                    "stock-state " +
+                    (item.quantity <= 0
+                      ? "empty"
+                      : item.quantity < item.minimum
+                        ? "critical"
+                        : "ok")
+                  }
+                >
+                  {item.quantity <= 0
+                    ? "Estoque vazio"
+                    : item.quantity < item.minimum
+                      ? "Crítico"
+                      : "Acompanhar"}
+                </span>
                 <small>{item.code}</small>
               </div>
               <h2>{item.name}</h2>
-              <p>
-                {item.warehouse} · Saldo: {item.quantity} · Consumo 30 dias:{" "}
-                {item.consumed30} · Variação: {projection.growth > 0 ? "+" : ""}
-                {projection.growth}%
+              <p className="purchase-card-location">{item.warehouse}</p>
+              <div className="purchase-card-key">
+                <div>
+                  <small>Comprar</small>
+                  <strong>{projection.buy} un.</strong>
+                </div>
+                <div>
+                  <small>Consumo médio</small>
+                  <strong>
+                    {(item.consumed30 / 30).toLocaleString("pt-BR", {
+                      maximumFractionDigits: 1,
+                    })}
+                    /dia
+                  </strong>
+                </div>
+              </div>
+              <p
+                className={
+                  projection.arrival < 0
+                    ? "purchase-risk is-alert"
+                    : "purchase-risk"
+                }
+              >
+                {projection.arrival < 0
+                  ? "▲ Pode faltar antes da entrega"
+                  : "Reposição planejada"}
               </p>
-              <p>
-                Prazo do fornecedor: {item.leadDays} dias · Saldo projetado na
-                chegada: {projection.arrival}
-              </p>
-              <strong>Comprar {projection.buy} unidades</strong>
-              <label className="purchase-cost">
-                Valor de referência unitária (R$)
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  value={draftCosts[item.code] ?? String(item.estimatedCost)}
-                  onChange={(event) =>
-                    setDraftCosts((current) => ({
-                      ...current,
-                      [item.code]: event.target.value,
-                    }))
-                  }
-                  onBlur={() => saveCost(item)}
-                  aria-label={"Valor de referência unitária de " + item.name}
-                />
-              </label>
-              <p className="purchase-estimate">
-                Estimativa para {projection.buy} unidades:{" "}
-                <strong>{currency(projection.buy * costFor(item))}</strong>
-              </p>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => setSelected({ item, projection })}
+              >
+                Ver detalhes da previsão
+              </button>
             </article>
           ))}
         </div>
@@ -287,6 +371,94 @@ export function PurchaseScreen({
           </button>
         </div>
       )}
+      <DashboardDialog
+        open={!!selected}
+        title={
+          selected
+            ? `Compra preditiva · ${selected.item.name}`
+            : "Compra preditiva"
+        }
+        onClose={() => setSelected(null)}
+      >
+        {selected && (
+          <div className="purchase-detail">
+            <p>
+              <strong>{selected.item.code}</strong> · {selected.item.warehouse}
+            </p>
+            <div className="purchase-detail-grid">
+              <div>
+                <span>Saldo atual</span>
+                <strong>{selected.item.quantity}</strong>
+                <small>Mínimo cadastrado: {selected.item.minimum}</small>
+              </div>
+              <div>
+                <span>Consumo médio</span>
+                <strong>
+                  {(selected.item.consumed30 / 30).toLocaleString("pt-BR", {
+                    maximumFractionDigits: 1,
+                  })}
+                  /dia
+                </strong>
+                <small>
+                  {selected.item.consumed30} unidades nos últimos 30 dias
+                </small>
+              </div>
+              <div>
+                <span>Compra sugerida</span>
+                <strong>{selected.projection.buy}</strong>
+                <small>
+                  Variação de consumo: {selected.projection.growth}%
+                </small>
+              </div>
+              <div>
+                <span>Prazo do fornecedor</span>
+                <strong>{selected.item.leadDays} dias</strong>
+                <small>
+                  Saldo projetado na chegada: {selected.projection.arrival}
+                </small>
+              </div>
+            </div>
+            <p>
+              Investimento estimado:{" "}
+              <strong>
+                {currency(selected.projection.buy * costFor(selected.item))}
+              </strong>
+              . O valor unitário é uma referência interna.
+            </p>
+            <label className="purchase-cost">
+              Valor de referência unitária (R$)
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={
+                  draftCosts[selected.item.code] ??
+                  String(selected.item.estimatedCost)
+                }
+                onChange={(event) =>
+                  setDraftCosts((current) => ({
+                    ...current,
+                    [selected.item.code]: event.target.value,
+                  }))
+                }
+                onBlur={() => saveCost(selected.item)}
+                aria-label={
+                  "Valor de referência unitária de " + selected.item.name
+                }
+              />
+            </label>
+            <p>
+              Consumo observado: {selected.item.consumed30} unidades nos últimos
+              30 dias. Mínimo: {selected.item.minimum} unidades.
+            </p>
+            <p>
+              A projeção usa consumo recente e prazo cadastrado. Confirme
+              estoque físico, prazo e cotação antes de comprar.
+            </p>
+          </div>
+        )}
+      </DashboardDialog>
     </>
   );
 }

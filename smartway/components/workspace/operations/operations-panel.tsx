@@ -19,6 +19,8 @@ import { TransferQueue } from "./transfer-queue";
 import { RecommendationCards } from "./recommendation-cards";
 const dates = (value: string | null | undefined) =>
   value ? value.replace("T", " ").replace("Z", "") + " UTC" : "Não registrado";
+const periodStart = (days: number) =>
+  new Date(Date.now() - (days - 1) * 86400000).toISOString().slice(0, 10);
 function initialView(role: Role, mode: string, view?: string): DashboardView {
   return role === "funcionario"
     ? "requisicoes"
@@ -59,6 +61,8 @@ export function OperationsPanel({
       : mode === "recomendacoes"
         ? "distribution"
         : null;
+  const isHistory = mode === "historico";
+  const isQueue = ["requisicoes", "solicitacoes"].includes(mode);
   function reportQuery(value: string) {
     const q = new URLSearchParams(value);
     if (planning) {
@@ -99,6 +103,11 @@ export function OperationsPanel({
         ...(planning
           ? { decision: planning === "purchase" ? "buy" : "transfer" }
           : {}),
+        ...(isHistory
+          ? { lifecycle: "completed" }
+          : isQueue
+            ? { lifecycle: role === "almoxarifado" ? "warehouse" : "active" }
+            : {}),
       }).toString(),
     ),
     [report, setReport] = useState<DashboardReport | null>(null),
@@ -246,6 +255,67 @@ export function OperationsPanel({
   const displayed = (report?.metrics ?? []).filter((m) =>
     ids[view].includes(m.id),
   );
+  const today = new Date().toISOString().slice(0, 10);
+  const selectedPeriod =
+    report?.filters.to === today
+      ? report.filters.from === periodStart(7)
+        ? "7"
+        : report.filters.from === periodStart(30)
+          ? "30"
+          : report.filters.from === today.slice(0, 7) + "-01"
+            ? "month"
+            : report.filters.from === today.slice(0, 4) + "-01-01"
+              ? "year"
+              : "custom"
+      : "custom";
+  const criticalValue = Number(
+    report?.metrics.find((m) => m.id === "critical")?.value ?? 0,
+  );
+  const pendingValue = Number(
+    report?.metrics.find((m) => m.id === "pending")?.value ?? 0,
+  );
+  const dashboardSummary =
+    view === "estoque" || planning
+      ? criticalValue > 0
+        ? `▼ ${criticalValue} posições abaixo do mínimo. Priorize a revisão do estoque.`
+        : "✓ Estoque sem alertas de mínimo neste recorte."
+      : pendingValue > 0
+        ? `▲ ${pendingValue} pedidos ainda exigem acompanhamento.`
+        : "✓ Nenhum pedido pendente neste recorte.";
+  const metricCard = (m: DashboardReport["metrics"][number]) => (
+    <article
+      className={
+        "ops-metric metric-" +
+        m.id +
+        (["critical", "urgent"].includes(m.id) && Number(m.value ?? 0) > 0
+          ? " is-alert"
+          : "")
+      }
+      key={m.id}
+    >
+      <button
+        className="dashboard-metric-button"
+        onClick={() => openMetric(m.id)}
+        aria-label={"Abrir " + m.label}
+      >
+        <span>{m.label}</span>
+        <strong>
+          {m.breakdown.length
+            ? m.breakdown
+                .map((b) => `${b.quantity.toLocaleString("pt-BR")} ${b.unit}`)
+                .join(" · ")
+            : m.value === null
+              ? "Sem dados"
+              : Number(m.value.toFixed(2)).toLocaleString("pt-BR")}
+        </strong>
+        <small>{m.unit}</small>
+      </button>
+      <details className="metric-help">
+        <summary aria-label={"O que significa " + m.label}>?</summary>
+        <p>{m.definition}</p>
+      </details>
+    </article>
+  );
   const openMetric = (id: Metric) => {
     setSelected(null);
     setDetailOpen(true);
@@ -329,7 +399,7 @@ export function OperationsPanel({
   );
   return (
     <div className="dashboard-suite">
-      {!planning && (
+      {!planning && !isHistory && !isQueue && (
         <nav className="dashboard-tabs" aria-label="Dashboards">
           {views.map((v) => (
             <button
@@ -366,21 +436,66 @@ export function OperationsPanel({
         <div className="panel-head">
           <div>
             <h1 className="dashboard-title">
-              {planning === "purchase"
-                ? "Compra preditiva"
-                : planning === "distribution"
-                  ? "Recomendação de estoque"
-                  : dashboardTitles[view]}
+              {isHistory
+                ? "Histórico de requisições"
+                : isQueue
+                  ? role === "almoxarifado"
+                    ? "Fila de separação"
+                    : "Requisições em andamento"
+                  : planning === "purchase"
+                    ? "Compra preditiva"
+                    : planning === "distribution"
+                      ? "Recomendação de estoque"
+                      : dashboardTitles[view]}
             </h1>
             <p>
-              {planning === "purchase"
-                ? "Revise compras por consumo efetivamente baixado, mínimos, prazo e entradas confirmadas."
-                : planning === "distribution"
-                  ? "Aproxime os materiais dos blocos que os consomem, usando caminhos do mapa publicado. Confirme toda transferência."
-                  : "Confira o período, compare os indicadores e abra os registros."}
+              {isHistory
+                ? "Pedidos entregues ou cancelados. Filtre e abra cada registro para acompanhar sua linha do tempo."
+                : isQueue
+                  ? "Pedidos que ainda precisam de atendimento. Os concluídos ficam no histórico."
+                  : planning === "purchase"
+                    ? "Revise compras por consumo efetivamente baixado, mínimos, prazo e entradas confirmadas."
+                    : planning === "distribution"
+                      ? "Aproxime os materiais dos blocos que os consomem, usando caminhos do mapa publicado. Confirme toda transferência."
+                      : "Confira o período, compare os indicadores e abra os registros."}
             </p>
-            <p>Escopo: {report?.scope ?? "Validando acesso"} · Fonte: MySQL</p>
+            <p className="dashboard-source">
+              {report?.scope ?? "Validando acesso"} · dados atualizados do
+              sistema
+            </p>
           </div>
+          {!isHistory && !isQueue && (
+            <label className="dashboard-period-select">
+              Período
+              <select
+                aria-label="Período dos gráficos"
+                value={selectedPeriod}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === "custom") return;
+                  update({
+                    from:
+                      value === "month"
+                        ? today.slice(0, 7) + "-01"
+                        : value === "year"
+                          ? today.slice(0, 4) + "-01-01"
+                          : periodStart(Number(value)),
+                    to: today,
+                    page: "1",
+                    decisionPage: "1",
+                  });
+                }}
+              >
+                <option value="7">Últimos 7 dias</option>
+                <option value="30">Últimos 30 dias</option>
+                <option value="month">Este mês</option>
+                <option value="year">Este ano</option>
+                {selectedPeriod === "custom" && (
+                  <option value="custom">Personalizado</option>
+                )}
+              </select>
+            </label>
+          )}
           <details
             className="dashboard-popover"
             onKeyDown={(e) => {
@@ -412,11 +527,18 @@ export function OperationsPanel({
         </div>
         <details
           className="dashboard-filters"
+          open={isHistory || isQueue ? true : undefined}
           onKeyDown={(e) => {
             if (e.key === "Escape") e.currentTarget.open = false;
           }}
         >
-          <summary>Filtros do relatório</summary>
+          <summary>
+            {isHistory
+              ? "Filtrar histórico"
+              : isQueue
+                ? "Filtrar fila"
+                : "Filtros do relatório"}
+          </summary>
           <form
             key={view + JSON.stringify(report?.filters)}
             className="ops-form"
@@ -430,18 +552,46 @@ export function OperationsPanel({
               update({ ...values, page: "1" });
             }}
           >
-            <label>
-              De
-              <input
-                name="from"
-                type="date"
-                defaultValue={report?.filters.from}
-              />
-            </label>
-            <label>
-              Até
-              <input name="to" type="date" defaultValue={report?.filters.to} />
-            </label>
+            {!isHistory && !isQueue && (
+              <>
+                <label>
+                  De
+                  <input
+                    name="from"
+                    type="date"
+                    defaultValue={report?.filters.from}
+                  />
+                </label>
+                <label>
+                  Até
+                  <input
+                    name="to"
+                    type="date"
+                    defaultValue={report?.filters.to}
+                  />
+                </label>
+              </>
+            )}
+            {isHistory && (
+              <>
+                <label>
+                  Concluído a partir de
+                  <input
+                    name="requestFrom"
+                    type="date"
+                    defaultValue={report?.filters.requestFrom}
+                  />
+                </label>
+                <label>
+                  Concluído até
+                  <input
+                    name="requestTo"
+                    type="date"
+                    defaultValue={report?.filters.requestTo}
+                  />
+                </label>
+              </>
+            )}
             {!["lider", "funcionario"].includes(role) && (
               <label>
                 Bloco
@@ -488,20 +638,38 @@ export function OperationsPanel({
                 ))}
               </select>
             </label>
-            {view === "requisicoes" && (
+            {(view === "requisicoes" || isHistory || isQueue) && (
               <>
                 <label>
                   Status
                   <select name="status" defaultValue={report?.filters.status}>
-                    <option value="">Todos</option>
-                    {[
-                      "Pendente",
-                      "Em análise",
-                      "Aprovada",
-                      "Entregue",
-                      "Cancelada",
-                      "Cancelamento solicitado",
-                    ].map((s) => (
+                    <option value="">
+                      {isHistory
+                        ? "Entregues e cancelados"
+                        : isQueue
+                          ? "Todas as etapas ativas"
+                          : "Todos"}
+                    </option>
+                    {(isHistory
+                      ? ["Entregue", "Cancelada"]
+                      : isQueue
+                        ? role === "almoxarifado"
+                          ? ["Aprovada", "Cancelamento solicitado"]
+                          : [
+                              "Pendente",
+                              "Em análise",
+                              "Aprovada",
+                              "Cancelamento solicitado",
+                            ]
+                        : [
+                            "Pendente",
+                            "Em análise",
+                            "Aprovada",
+                            "Entregue",
+                            "Cancelada",
+                            "Cancelamento solicitado",
+                          ]
+                    ).map((s) => (
                       <option key={s}>{s}</option>
                     ))}
                   </select>
@@ -533,61 +701,75 @@ export function OperationsPanel({
         )}
         {loading && <p role="status">Carregando indicadores e registros…</p>}
         {exporting && <p role="status">Gerando relatório…</p>}
-        {report && !loading && (
+        {report && !loading && !isHistory && !isQueue && (
           <>
-            <p className="dashboard-context">
-              Período: {report.methodology.period} · Escopo: {report.scope} ·
-              Atualização: {dates(report.generatedAt)}
+            <p
+              className={
+                "dashboard-health " +
+                (criticalValue || pendingValue
+                  ? "needs-attention"
+                  : "is-healthy")
+              }
+            >
+              {dashboardSummary}
             </p>
-            <details open={!planning}>
-              <summary>Ver indicadores do período</summary>
-              <div className="ops-metrics dashboard-metrics">
-                {displayed.map((m) => (
-                  <article className="ops-metric" key={m.id}>
-                    <button
-                      className="dashboard-metric-button"
-                      onClick={() => openMetric(m.id)}
-                      aria-label={"Abrir " + m.label}
-                    >
-                      <span>{m.label}</span>
-                      <strong>
-                        {m.breakdown.length
-                          ? m.breakdown
-                              .map(
-                                (b) =>
-                                  `${b.quantity.toLocaleString("pt-BR")} ${b.unit}`,
-                              )
-                              .join(" · ")
-                          : m.value === null
-                            ? "Sem dados"
-                            : Number(m.value.toFixed(2)).toLocaleString(
-                                "pt-BR",
-                              )}
-                      </strong>
-                      <small>{m.unit}</small>
-                    </button>
-                    <details className="dashboard-definition">
-                      <summary aria-label={"Definição de " + m.label}>
-                        Definição
-                      </summary>
-                      <p role="tooltip">{m.definition}</p>
-                    </details>
-                    <small>
-                      {m.period}
-                      <br />
-                      {m.scope}
-                      <br />
-                      Atualizado: {dates(m.updatedAt)}
-                    </small>
-                  </article>
-                ))}
-              </div>
-            </details>
+            <div className="ops-metrics dashboard-metrics">
+              {displayed.slice(0, 4).map(metricCard)}
+            </div>
+            {displayed.length > 4 && (
+              <details className="dashboard-secondary-metrics">
+                <summary>Outros indicadores ({displayed.length - 4})</summary>
+                <div className="ops-metrics dashboard-metrics">
+                  {displayed.slice(4).map(metricCard)}
+                </div>
+              </details>
+            )}
+            <small className="dashboard-context">
+              Atualizado: {dates(report.generatedAt)} · Período:{" "}
+              {report.methodology.period}
+            </small>
           </>
         )}
       </section>
       {report && !loading && (
         <>
+          {isQueue && (
+            <section className="panel ops-panel" aria-label="Etapas da fila">
+              <div className="panel-head">
+                <div>
+                  <h2>Etapas em andamento</h2>
+                  <p>
+                    {report.details.total} pedidos para acompanhar neste filtro.
+                  </p>
+                </div>
+              </div>
+              <div className="queue-stage-list">
+                {report.statusBreakdown.map((stage) => (
+                  <div className="queue-stage" key={stage.status}>
+                    <span>{stage.status}</span>
+                    <strong>{stage.quantity}</strong>
+                  </div>
+                ))}
+                {!report.statusBreakdown.length && (
+                  <p>Nenhum pedido aguardando atendimento.</p>
+                )}
+              </div>
+            </section>
+          )}
+          {isHistory && (
+            <section className="panel ops-panel history-panel">
+              <div className="panel-head">
+                <div>
+                  <h2>Registros concluídos</h2>
+                  <p>
+                    {report.details.total} requisições encontradas · mais
+                    recentes primeiro.
+                  </p>
+                </div>
+              </div>
+              {records}
+            </section>
+          )}
           {planning && (
             <RecommendationCards
               mode={planning}
@@ -621,10 +803,17 @@ export function OperationsPanel({
             />
           )}
           {!planning &&
-            ["geral", "bloco", "estoque", "compra"].includes(view) && (
-              <DashboardCharts report={report} />
+            !isHistory &&
+            !isQueue &&
+            ["geral", "bloco", "estoque", "requisicoes", "compra"].includes(
+              view,
+            ) && (
+              <DashboardCharts
+                report={report}
+                showRequests={view !== "estoque"}
+              />
             )}
-          {view === "geral" && (
+          {!isHistory && !isQueue && view === "geral" && (
             <section className="panel ops-panel">
               <div className="panel-head">
                 <div>
@@ -654,20 +843,25 @@ export function OperationsPanel({
               </p>
             </section>
           )}
-          {["requisicoes", "bloco"].includes(view) && (
-            <section className="panel ops-panel">
-              <div className="panel-head">
-                <div>
-                  <h2>Fila de requisições</h2>
-                  <p>
-                    Urgência, seguida da data mais antiga. Cada registro é uma
-                    linha de item. Prazo: não cadastrado.
-                  </p>
+          {!isHistory &&
+            (isQueue || ["requisicoes", "bloco"].includes(view)) && (
+              <section className="panel ops-panel">
+                <div className="panel-head">
+                  <div>
+                    <h2>
+                      {role === "almoxarifado" && isQueue
+                        ? "Fila de separação"
+                        : "Fila de requisições"}
+                    </h2>
+                    <p>
+                      Urgência, seguida da data mais antiga. Cada registro é uma
+                      linha de item. Prazo: não cadastrado.
+                    </p>
+                  </div>
                 </div>
-              </div>
-              {records}
-            </section>
-          )}
+                {records}
+              </section>
+            )}
           {["estoque", "compra"].includes(view) && (
             <section className="panel ops-panel">
               <div className="panel-head">

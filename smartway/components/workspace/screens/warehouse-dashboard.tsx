@@ -205,6 +205,17 @@ export function WarehouseDashboard({
     (item) => item.quantity < item.minimum,
   );
   const critical = criticalParts.length;
+  const warehouseTotals = WAREHOUSES.map((name) => ({
+    name,
+    amount: stock.reduce(
+      (sum, part) => sum + balanceOf(balances, part.code, name),
+      0,
+    ),
+  })).sort((a, b) => b.amount - a.amount);
+  const warehouseMaximum = Math.max(
+    1,
+    ...warehouseTotals.map((item) => item.amount),
+  );
   const abnormalRequests = filteredRequests.filter(
     (item) => Boolean(item.justification) || item.priority === "Urgente",
   );
@@ -254,10 +265,11 @@ export function WarehouseDashboard({
           <FileText size={16} aria-hidden="true" /> PDF / imprimir
         </button>
       </div>
-      <section
+      <details
         className="panel warehouse-filters"
         aria-label="Filtros do dashboard"
       >
+        <summary>Mais filtros</summary>
         <div className="panel-head">
           <div>
             <h2>Filtros de análise</h2>
@@ -354,7 +366,16 @@ export function WarehouseDashboard({
             </select>
           </label>
         </div>
-      </section>
+      </details>
+      <p
+        className={
+          "dashboard-health " + (critical ? "needs-attention" : "is-healthy")
+        }
+      >
+        {critical
+          ? `▼ ${critical} peças estão abaixo do mínimo. Confira a reposição.`
+          : "✓ Estoque sem peças abaixo do mínimo neste recorte."}
+      </p>
       <div className="stats warehouse-stats">
         <button
           type="button"
@@ -426,20 +447,7 @@ export function WarehouseDashboard({
           </div>
         </div>
         <div className="visual-bars">
-          {WAREHOUSES.map((name) => {
-            const amount = stock.reduce(
-              (sum, part) => sum + balanceOf(balances, part.code, name),
-              0,
-            );
-            const maximum = Math.max(
-              1,
-              ...WAREHOUSES.map((place) =>
-                stock.reduce(
-                  (sum, part) => sum + balanceOf(balances, part.code, place),
-                  0,
-                ),
-              ),
-            );
+          {warehouseTotals.map(({ name, amount }) => {
             return (
               <button
                 className="visual-bar visual-bar-button"
@@ -451,8 +459,8 @@ export function WarehouseDashboard({
                 <span>{name}</span>
                 <div className="metric-track">
                   <i
-                    className={name === "Central" ? "entry" : "exit"}
-                    style={{ width: `${(amount / maximum) * 100}%` }}
+                    className="neutral"
+                    style={{ width: `${(amount / warehouseMaximum) * 100}%` }}
                   />
                 </div>
                 <strong>{amount} un.</strong>

@@ -192,10 +192,11 @@ export default function Workspace({
   );
   const shownRequests = roleRequests.filter(
     (item) =>
-      (page !== "historico" ||
-        role === "funcionario" ||
-        item.status === "Entregue" ||
-        item.status === "Cancelada") &&
+      (page === "historico"
+        ? ["Entregue", "Cancelada"].includes(item.status)
+        : ["requisicoes", "solicitacoes"].includes(page)
+          ? !["Entregue", "Cancelada"].includes(item.status)
+          : true) &&
       (statusFilter === "Todas" || item.status === statusFilter) &&
       (item.material + item.person + item.id)
         .toLowerCase()

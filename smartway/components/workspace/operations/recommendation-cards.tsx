@@ -1,13 +1,19 @@
 "use client";
+
+import { useState } from "react";
 import type { DashboardReport } from "@/lib/dashboard-report";
 import type { Role } from "@/lib/workspace-routes";
 import { can } from "@/lib/permissions";
+import { DashboardDialog } from "./dashboard-dialog";
 import { DistributionMap } from "./distribution-map";
 import { TransferQueue } from "./transfer-queue";
+
+type DecisionCard = DashboardReport["decisions"]["cards"][number];
 const money = (value: number | null) =>
   value === null
     ? "Preço não informado"
     : value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
 export function RecommendationCards({
   mode = "distribution",
   report,
@@ -29,8 +35,22 @@ export function RecommendationCards({
   onBuy: (code: string, warehouse: string) => void;
   onCritical: () => void;
 }) {
-  const d = report.decisions,
-    archived = ["analysis", "history"].includes(d.filter);
+  const [selected, setSelected] = useState<DecisionCard | null>(null);
+  const d = report.decisions;
+  const archived = ["analysis", "history"].includes(d.filter);
+  const totalPositions =
+    d.riskSummary.empty + d.riskSummary.critical + d.riskSummary.adequate;
+  const headline =
+    mode === "purchase"
+      ? d.riskSummary.empty + d.riskSummary.critical > 0
+        ? `▲ ${d.riskSummary.empty + d.riskSummary.critical} posições precisam de atenção.`
+        : "✓ Nenhuma posição abaixo do mínimo neste recorte."
+      : d.transfers > 0
+        ? `${d.transfers} transferências podem aproximar peças dos blocos.`
+        : "Não há transferências sugeridas neste recorte.";
+  const row = selected?.row;
+  const transfer = selected?.transfer;
+
   return (
     <section
       className="panel ops-panel decision-panel"
@@ -42,69 +62,118 @@ export function RecommendationCards({
         <div>
           <h2>
             {mode === "purchase"
-              ? "Compras sugeridas"
-              : "Recomendação de estoque"}
+              ? "Peças para avaliar"
+              : "Sugestões de distribuição"}
           </h2>
-          <p>
-            Revise a necessidade e escolha a ação. Sugestões não movimentam
-            saldo.
-          </p>
+          <p className="chart-insight">{headline}</p>
         </div>
       </div>
-      <div className="decision-totals">
-        <button
-          onClick={() => onFilter(mode === "purchase" ? "buy" : "transfer")}
+
+      {mode === "purchase" && (
+        <div
+          className="purchase-visual-summary"
+          aria-label="Estado do estoque no planejamento"
         >
-          <strong>{mode === "purchase" ? d.purchases : d.transfers}</strong>
-          <span>
-            {mode === "purchase"
-              ? "Posições com compra recomendada"
-              : "Transferências recomendadas"}
-          </span>
-        </button>
-        <button onClick={onCritical}>
-          <strong>{d.criticalItems}</strong>
-          <span>Itens abaixo do mínimo</span>
-        </button>
-        <button onClick={() => onFilter("action")}>
-          <strong>{d.awaitingReview}</strong>
-          <span>Sugestões aguardando aprovação</span>
-        </button>
-      </div>
-      <p className="decision-context">
-        Contagem no escopo filtrado, antes da paginação. “Aguardando aprovação”
-        indica propostas para sua confirmação, não uma nova etapa do fluxo.
-        Risco de falta: disponível abaixo do mínimo cadastrado.
-      </p>
-      <p>
-        Período: {report.methodology.period} · {report.scope} · Atualizado em{" "}
-        {report.generatedAt}.
-      </p>
-      <label>
-        Filtrar sugestões
-        <select value={d.filter} onChange={(e) => onFilter(e.target.value)}>
-          <option value="action">Ação necessária</option>
-          {mode === "distribution" && (
-            <option value="transfer">Transferir</option>
-          )}
-          {mode === "purchase" && <option value="buy">Comprar</option>}
-          {mode === "distribution" && (
-            <option value="analysis">Em análise / em andamento</option>
-          )}
-          <option value="insufficient">Sem dados suficientes</option>
-          {mode === "distribution" && (
-            <option value="history">Histórico</option>
-          )}
-          <option value="all">Todas as posições</option>
-        </select>
-      </label>
-      {mode === "distribution" && (
-        <p role="status">
-          {report.mapVersion
-            ? `Mapa publicado #${report.mapVersion}. Consumo sem vínculo ou caminho válido não gera transferência por proximidade.`
-            : "Publique um mapa com blocos, almoxarifados e caminhos revisados para obter recomendações por proximidade. Sem mapa válido, use a movimentação manual."}
-        </p>
+          <div
+            className="purchase-status-strip"
+            role="img"
+            aria-label={`Estoque vazio ${d.riskSummary.empty}; crítico ${d.riskSummary.critical}; adequado ${d.riskSummary.adequate}`}
+          >
+            {d.riskSummary.empty > 0 && (
+              <span className="empty" style={{ flex: d.riskSummary.empty }} />
+            )}
+            {d.riskSummary.critical > 0 && (
+              <span
+                className="critical"
+                style={{ flex: d.riskSummary.critical }}
+              />
+            )}
+            {d.riskSummary.adequate > 0 && (
+              <span className="ok" style={{ flex: d.riskSummary.adequate }} />
+            )}
+          </div>
+          <div className="purchase-status-legend">
+            {d.riskSummary.empty > 0 && (
+              <span>
+                <i className="empty" />
+                Vazio {d.riskSummary.empty}
+              </span>
+            )}
+            {d.riskSummary.critical > 0 && (
+              <span>
+                <i className="critical" />
+                Crítico {d.riskSummary.critical}
+              </span>
+            )}
+            {d.riskSummary.adequate > 0 && (
+              <span>
+                <i className="ok" />
+                Adequado {d.riskSummary.adequate}
+              </span>
+            )}
+          </div>
+          <small>{totalPositions} posições no recorte selecionado.</small>
+        </div>
       )}
+
+      <div className="decision-toolbar">
+        <label>
+          Mostrar
+          <select
+            value={d.filter}
+            onChange={(event) => onFilter(event.target.value)}
+          >
+            <option value="action">Ação necessária</option>
+            {mode === "distribution" && (
+              <option value="transfer">Transferir</option>
+            )}
+            {mode === "purchase" && <option value="buy">Comprar</option>}
+            {mode === "distribution" && (
+              <option value="analysis">Em andamento</option>
+            )}
+            <option value="insufficient">Sem dados suficientes</option>
+            {mode === "distribution" && (
+              <option value="history">Histórico</option>
+            )}
+            <option value="all">Todas as posições</option>
+          </select>
+        </label>
+        <details className="decision-extra">
+          <summary>Mais informações</summary>
+          <div className="decision-totals">
+            <button
+              onClick={() => onFilter(mode === "purchase" ? "buy" : "transfer")}
+            >
+              <strong>{mode === "purchase" ? d.purchases : d.transfers}</strong>
+              <span>
+                {mode === "purchase"
+                  ? "Compras sugeridas"
+                  : "Transferências sugeridas"}
+              </span>
+            </button>
+            <button onClick={onCritical}>
+              <strong>{d.criticalItems}</strong>
+              <span>Itens abaixo do mínimo</span>
+            </button>
+            <button onClick={() => onFilter("action")}>
+              <strong>{d.awaitingReview}</strong>
+              <span>Sugestões para revisar</span>
+            </button>
+          </div>
+          <p>
+            Contagens antes da paginação. Período: {report.methodology.period}.
+            Atualizado: {report.generatedAt}. Sugestões não movimentam saldo.
+          </p>
+          {mode === "distribution" && (
+            <p>
+              {report.mapVersion
+                ? `Mapa publicado #${report.mapVersion}.`
+                : "Sem mapa publicado, não há rota automática verificada."}
+            </p>
+          )}
+        </details>
+      </div>
+
       {archived ? (
         <TransferQueue
           key={`${d.filter}:${report.filters.code}:${report.filters.warehouse}:${report.filters.block}:${report.filters.from}:${report.filters.to}`}
@@ -118,206 +187,89 @@ export function RecommendationCards({
       ) : (
         <>
           <div className="decision-grid">
-            {d.cards.map(({ row: r, transfer: t, action }) => (
-              <article
-                className="decision-card"
-                key={`${action}:${r.code}:${r.warehouse}:${t?.from ?? ""}`}
-              >
-                <header>
-                  <span className="dashboard-badge">
-                    {action === "transfer"
-                      ? "Transferir"
-                      : action === "buy"
-                        ? "Comprar"
-                        : "Acompanhar"}
-                  </span>
-                  <h3>{r.item}</h3>
-                  <p>
-                    {r.code} ·{" "}
-                    <strong>
-                      {action === "observe" && mode === "distribution"
-                        ? "Sem transferência sugerida"
-                        : `${t?.quantity ?? r.buy} ${r.unit}${action === "observe" ? " a comprar" : " sugeridos"}`}
-                    </strong>
-                  </p>
-                </header>
-                <p className="decision-route">
-                  {t ? (
-                    <>
-                      <span>{t.from}</span>
-                      <span className="decision-arrow" aria-label="para">
-                        →
-                      </span>
-                      <span>{t.to}</span>
-                    </>
-                  ) : (
-                    <>Destino: {r.warehouse}</>
-                  )}
-                </p>
-                <p>
-                  {t
-                    ? t.evidence.consumption?.length
-                      ? `Consumo dos blocos atendidos: ${t.evidence.consumption.map((c) => `${c.block}, ${c.quantity} ${r.unit}`).join("; ")}. ${t.reason}`
-                      : `Sem retiradas observadas nos blocos atendidos. ${t.reason}`
-                    : action === "buy"
-                      ? "Necessidade remanescente após saldo disponível, entradas e transferências possíveis."
-                      : "Sem compra ou transferência sugerida com os dados atuais."}
-                </p>
-                {t && (
-                  <div
-                    className="decision-balance"
-                    aria-label="Saldo disponível da origem antes e depois"
-                  >
-                    <span>
-                      Disponível na origem
-                      <br />
-                      <strong>
-                        {t.evidence.sourceAvailable} {r.unit}
-                      </strong>
+            {d.cards.map((card) => {
+              const r = card.row;
+              const t = card.transfer;
+              const state =
+                r.available <= 0
+                  ? "empty"
+                  : r.available < r.configuredMinimum
+                    ? "critical"
+                    : "ok";
+              const amount = t?.quantity ?? r.buy;
+              return (
+                <article
+                  className="decision-card decision-compact"
+                  key={`${card.action}:${r.code}:${r.warehouse}:${t?.from ?? ""}`}
+                >
+                  <div className="decision-card-top">
+                    <span className={`stock-state ${state}`}>
+                      {state === "empty"
+                        ? "Estoque vazio"
+                        : state === "critical"
+                          ? "Crítico"
+                          : "Adequado"}
                     </span>
-                    <span
-                      className="decision-arrow"
-                      aria-label="após transferência"
-                    >
-                      →
-                    </span>
-                    <span>
-                      Após transferência
-                      <br />
-                      <strong>
-                        {t.evidence.sourceAvailable - t.quantity} {r.unit}
-                      </strong>
-                    </span>
-                    <small>
-                      Mínimo recomendado na origem: {t.evidence.sourceMinimum}{" "}
-                      {r.unit}. Reservado: {t.evidence.sourceReserved} {r.unit}.
-                      Projeção, sem alteração de saldo.
-                    </small>
+                    <small>{r.code}</small>
                   </div>
-                )}
-                <p>
-                  Destino: disponível {r.available} {r.unit} · mínimo cadastrado{" "}
-                  {r.configuredMinimum} {r.unit}.
-                </p>
-                <p className="decision-confidence">
-                  Confiança: {r.analysis.confidence}.{" "}
-                  {r.analysis.confidence === "Dados insuficientes" &&
-                    `São ${r.analysis.days} dias observáveis; não há histórico suficiente para validar a previsão. `}
-                  {!r.priceDate && "Falta data verificável do preço. "}
-                  {mode === "distribution" &&
-                    !report.mapVersion &&
-                    "Falta mapa publicado válido para comprovar proximidade e rota."}
-                </p>
-                <details className="decision-calculation">
-                  <summary>Ver cálculo e dados</summary>
-                  <dl>
-                    {mode === "distribution" && (
-                      <>
-                        <dt>Consumo sem acesso mapeado</dt>
-                        <dd>
-                          {r.distribution?.unmappedConsumption ?? 0} {r.unit}{" "}
-                          neste item. Vincule os blocos e locais no mapa para
-                          incluir essas retiradas.
-                        </dd>
-                      </>
-                    )}
-                    <dt>Período e atualização</dt>
-                    <dd>
-                      {report.methodology.period} · {report.generatedAt}
-                    </dd>
-                    <dt>Entradas / retiradas / devoluções</dt>
-                    <dd>
-                      Entradas: {r.entries} {r.unit}; retiradas efetivas:{" "}
-                      {r.withdrawals} {r.unit}; devoluções: {r.returns} {r.unit}
-                      .
-                    </dd>
-                    <dt>Estoque do destino</dt>
-                    <dd>
-                      Físico: {r.physical}; reservado: {r.reserved}; disponível:{" "}
-                      {r.available}; mínimo sugerido: {r.minimum}; alvo:{" "}
-                      {r.target} {r.unit}.
-                      {mode === "purchase" &&
-                        ` Mínimo cadastrado do item no conjunto dos locais: ${r.itemMinimum} ${r.unit}.`}
-                    </dd>
-                    <dt>Previsão e prazo</dt>
-                    <dd>
-                      {r.forecast} {r.unit} em {r.leadDays} dias. Entradas
-                      confirmadas: {r.incoming} {r.unit}.
-                    </dd>
-                    <dt>Comprar / transferir</dt>
-                    <dd>
-                      Comprar: {r.buy} {r.unit}; transferir: {r.transfer}{" "}
-                      {r.unit}.
-                    </dd>
-                    <dt>Preço e fonte</dt>
-                    <dd>
-                      {money(r.unitPrice)} por {r.unit}. {r.priceLabel}. Data:{" "}
-                      {r.priceDate ?? "não registrada"}. Custo de compra
-                      estimado: {money(r.cost)}.
-                    </dd>
-                    <dt>Método e validação</dt>
-                    <dd>
-                      {r.analysis.method}. {r.analysis.reason} MAE:{" "}
-                      {r.analysis.mae?.toFixed(2) ?? "não validado"}; WAPE:{" "}
-                      {r.analysis.wape === null
-                        ? "não validado"
-                        : `${(r.analysis.wape * 100).toFixed(1)}%`}
-                      .
-                    </dd>
-                    <dt>Origem dos dados</dt>
-                    <dd>
-                      {report.methodology.source}{" "}
-                      {t?.evidence.proximity ?? r.distribution?.proximity}
-                    </dd>
-                  </dl>
-                  <p>
-                    Compra sugerida: alvo {r.target} − disponível {r.available}{" "}
-                    − entradas {r.incoming} − transferências sugeridas{" "}
-                    {r.transfer} − transferências pendentes{" "}
-                    {r.distribution?.pendingIncoming ?? 0}, limitada a zero ={" "}
-                    {r.buy} {r.unit}.
+                  <h3>{r.item}</h3>
+                  <p className="decision-card-location">
+                    {t ? `${t.from} → ${t.to}` : r.warehouse}
                   </p>
-                  {t && (
-                    <p>
-                      {t.benefit} Alvo da origem: {t.evidence.sourceTarget}{" "}
-                      {r.unit}; transferências pendentes no destino:{" "}
-                      {t.evidence.pendingIncoming ?? 0} {r.unit}.
-                    </p>
-                  )}
-                </details>
-                <div className="decision-actions">
+                  <div className="decision-card-numbers">
+                    <div>
+                      <small>
+                        {card.action === "transfer"
+                          ? "Transferir"
+                          : card.action === "buy"
+                            ? "Comprar"
+                            : "Sugestão"}
+                      </small>
+                      <strong>
+                        {amount} {r.unit}
+                      </strong>
+                    </div>
+                    <div>
+                      <small>Consumo médio</small>
+                      <strong>
+                        {(
+                          r.withdrawals / Math.max(1, r.analysis.days)
+                        ).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                        /dia
+                      </strong>
+                    </div>
+                  </div>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setSelected(card)}
+                  >
+                    Ver detalhes
+                  </button>
                   {t && can(role, "stock") && (
                     <button
                       className="button primary"
                       disabled={busy}
                       onClick={() => onTransfer(t)}
                     >
-                      Solicitar transferência sugerida
+                      Solicitar transferência
                     </button>
                   )}
-                  {action === "buy" && can(role, "planning") && (
+                  {card.action === "buy" && can(role, "planning") && (
                     <button
-                      className="button secondary"
+                      className="link-button"
                       onClick={() => onBuy(r.code, r.warehouse)}
                     >
-                      Revisar compra e exportar
+                      Revisar e exportar
                     </button>
                   )}
-                </div>
-                {t && report.mapVersion && (
-                  <DistributionMap
-                    version={report.mapVersion}
-                    from={t.from}
-                    to={t.to}
-                  />
-                )}
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
           {!d.cards.length && (
-            <p role="status">
-              Nenhuma sugestão corresponde a este filtro. Revise o período ou
-              selecione todas as posições.
+            <p className="dashboard-empty">
+              Nenhuma sugestão corresponde aos filtros.
             </p>
           )}
           <nav className="head-actions" aria-label="Paginação das sugestões">
@@ -326,21 +278,224 @@ export function RecommendationCards({
               disabled={d.page <= 1}
               onClick={() => onPage(d.page - 1)}
             >
-              Sugestões anteriores
+              Anterior
             </button>
             <span>
-              Página {d.page} · {d.total} cartões
+              Página {d.page} · {d.total} sugestões
             </span>
             <button
               className="button secondary"
               disabled={d.page * report.filters.pageSize >= d.total}
               onClick={() => onPage(d.page + 1)}
             >
-              Mais sugestões
+              Próxima
             </button>
           </nav>
         </>
       )}
+
+      <DashboardDialog
+        open={!!selected}
+        title={row ? `${row.item} · ${row.code}` : "Detalhes da sugestão"}
+        onClose={() => setSelected(null)}
+      >
+        {row && (
+          <div className="purchase-detail">
+            <p>
+              <strong>{row.warehouse}</strong> · {report.methodology.period} ·{" "}
+              {report.scope}
+            </p>
+            <div className="purchase-detail-grid">
+              <div>
+                <span>Disponível</span>
+                <strong>
+                  {row.available} {row.unit}
+                </strong>
+                <small>
+                  Físico {row.physical} − reservado {row.reserved}
+                </small>
+              </div>
+              <div>
+                <span>Consumo médio</span>
+                <strong>
+                  {(
+                    row.withdrawals / Math.max(1, row.analysis.days)
+                  ).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}
+                  /dia
+                </strong>
+                <small>
+                  {row.withdrawals} {row.unit} em {row.analysis.days} dias
+                  observáveis
+                </small>
+              </div>
+              <div>
+                <span>
+                  {transfer ? "Transferência sugerida" : "Compra sugerida"}
+                </span>
+                <strong>
+                  {transfer?.quantity ?? row.buy} {row.unit}
+                </strong>
+                <small>
+                  Alvo: {row.target} {row.unit}
+                </small>
+              </div>
+              <div>
+                <span>Prazo de reposição</span>
+                <strong>{row.leadDays} dias</strong>
+                <small>
+                  Consumo previsto: {row.forecast} {row.unit}
+                </small>
+              </div>
+            </div>
+            <div className="prediction-visual">
+              <strong>Saldo em relação ao alvo</strong>
+              <div className="prediction-track">
+                <i
+                  style={{
+                    width: `${Math.max(0, Math.min(100, (100 * row.available) / Math.max(1, row.target)))}%`,
+                  }}
+                />
+              </div>
+              <small>
+                {row.available} de {row.target} {row.unit}
+              </small>
+            </div>
+            <details>
+              <summary>Como foi calculado</summary>
+              <dl className="decision-detail-list">
+                <dt>Movimentações</dt>
+                <dd>
+                  Entradas {row.entries}, retiradas {row.withdrawals},
+                  devoluções {row.returns} {row.unit}.
+                </dd>
+                <dt>Estoque</dt>
+                <dd>
+                  Mínimo cadastrado {row.configuredMinimum}; mínimo sugerido{" "}
+                  {row.minimum}; entradas confirmadas {row.incoming};
+                  transferência possível {row.transfer} {row.unit}.
+                </dd>
+                <dt>Item e local</dt>
+                <dd>
+                  Localização {row.location}. Mínimo total do item{" "}
+                  {row.itemMinimum} {row.unit}. Saldo físico {row.physical},
+                  reservado {row.reserved}.
+                </dd>
+                <dt>Compra</dt>
+                <dd>
+                  Alvo {row.target} − disponível {row.available} − entradas{" "}
+                  {row.incoming} − transferências {row.transfer} − pendentes{" "}
+                  {row.distribution?.pendingIncoming ?? 0}, limitado a zero ={" "}
+                  {row.buy} {row.unit}.
+                </dd>
+                <dt>Preço e fonte</dt>
+                <dd>
+                  {money(row.unitPrice)} por {row.unit}. {row.priceLabel}. Data:{" "}
+                  {row.priceDate ?? "não registrada"}. Custo estimado:{" "}
+                  {money(row.cost)}.
+                </dd>
+                <dt>Confiança</dt>
+                <dd>
+                  {row.analysis.confidence}. {row.analysis.method}.{" "}
+                  {row.analysis.reason} MAE:{" "}
+                  {row.analysis.mae?.toFixed(2) ?? "não validado"}; WAPE:{" "}
+                  {row.analysis.wape === null
+                    ? "não validado"
+                    : `${(row.analysis.wape * 100).toFixed(1)}%`}
+                  .
+                </dd>
+                <dt>Período e atualização</dt>
+                <dd>
+                  {report.methodology.period} · {report.generatedAt}
+                </dd>
+                {mode === "distribution" && (
+                  <>
+                    <dt>Consumo sem acesso mapeado</dt>
+                    <dd>
+                      {row.distribution?.unmappedConsumption ?? 0} {row.unit}.{" "}
+                      {row.distribution?.proximity}
+                    </dd>
+                  </>
+                )}
+                {transfer && (
+                  <>
+                    <dt>Transferência</dt>
+                    <dd>
+                      {transfer.from} → {transfer.to}: {transfer.quantity}{" "}
+                      {row.unit}. {transfer.reason} {transfer.benefit}
+                    </dd>
+                    <dt>Origem</dt>
+                    <dd>
+                      Disponível {transfer.evidence.sourceAvailable}, reservado{" "}
+                      {transfer.evidence.sourceReserved}, mínimo{" "}
+                      {transfer.evidence.sourceMinimum}, alvo{" "}
+                      {transfer.evidence.sourceTarget} {row.unit}.
+                    </dd>
+                    <dt>Destino</dt>
+                    <dd>
+                      Disponível {transfer.evidence.destinationAvailable},
+                      reservado {transfer.evidence.destinationReserved}, alvo{" "}
+                      {transfer.evidence.destinationTarget}, entradas{" "}
+                      {transfer.evidence.incoming}, pendentes{" "}
+                      {transfer.evidence.pendingIncoming} {row.unit}.{" "}
+                      {transfer.evidence.proximity}
+                    </dd>
+                  </>
+                )}
+                {transfer && (
+                  <>
+                    <dt>Consumo por bloco</dt>
+                    <dd>
+                      {transfer.evidence.consumption
+                        ?.map(
+                          (item) =>
+                            `${item.block}: ${item.quantity} ${row.unit}`,
+                        )
+                        .join("; ") || "Sem retiradas observadas"}
+                      .
+                    </dd>
+                    <dt>Evidência da sugestão</dt>
+                    <dd>
+                      {transfer.evidence.period.from} a{" "}
+                      {transfer.evidence.period.to}; prazo{" "}
+                      {transfer.evidence.leadDays} dias; confiança{" "}
+                      {transfer.confidence}; previsão{" "}
+                      {transfer.evidence.forecast} {row.unit}.
+                    </dd>
+                  </>
+                )}
+              </dl>
+            </details>
+            <small>
+              Fonte: {report.methodology.source}. Valores internos não são
+              cotação de fornecedor.
+            </small>
+            {transfer && report.mapVersion && (
+              <DistributionMap
+                version={report.mapVersion}
+                from={transfer.from}
+                to={transfer.to}
+              />
+            )}
+            {transfer && can(role, "stock") && (
+              <button
+                className="button primary"
+                disabled={busy}
+                onClick={() => onTransfer(transfer)}
+              >
+                Solicitar transferência
+              </button>
+            )}
+            {selected?.action === "buy" && can(role, "planning") && (
+              <button
+                className="button primary"
+                onClick={() => onBuy(row.code, row.warehouse)}
+              >
+                Revisar compra e exportar
+              </button>
+            )}
+          </div>
+        )}
+      </DashboardDialog>
     </section>
   );
 }

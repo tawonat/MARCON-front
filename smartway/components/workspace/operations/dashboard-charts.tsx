@@ -1,7 +1,19 @@
 ﻿"use client";
 import { useState } from "react";
 import type { DashboardReport } from "@/lib/dashboard-report";
-export function DashboardCharts({ report }: { report: DashboardReport }) {
+import { StatusBreakdown } from "./status-breakdown";
+export function DashboardCharts({
+  report,
+  showRequests = true,
+}: {
+  report: DashboardReport;
+  showRequests?: boolean;
+}) {
+  const statuses = report.statusBreakdown.filter((entry) => entry.quantity > 0);
+  const statusTotal = statuses.reduce((sum, entry) => sum + entry.quantity, 0);
+  const leadingStatus = [...statuses].sort(
+    (a, b) => b.quantity - a.quantity,
+  )[0];
   const units = [...new Set(report.daily.map((r) => r.unit))];
   const [selected, setSelected] = useState("");
   const unit = units.includes(selected) ? selected : (units[0] ?? "un");
@@ -17,7 +29,9 @@ export function DashboardCharts({ report }: { report: DashboardReport }) {
     };
   });
   const max = Math.max(1, ...series.map((s) => s.quantity)),
-    top = report.top.filter((t) => t.unit === unit),
+    top = report.top
+      .filter((t) => t.unit === unit)
+      .sort((a, b) => b.quantity - a.quantity),
     topMax = Math.max(1, ...top.map((t) => t.quantity));
   const points = series
     .map(
@@ -27,6 +41,25 @@ export function DashboardCharts({ report }: { report: DashboardReport }) {
     .join(" ");
   return (
     <section className="dashboard-charts" aria-label="Gráficos de consumo">
+      {showRequests && (
+        <article className="panel ops-panel dashboard-status-chart">
+          <div className="panel-head">
+            <div>
+              <h2>Em que etapa estão os pedidos?</h2>
+              <p>
+                Proporção das requisições no período e filtros selecionados.
+              </p>
+            </div>
+          </div>
+          <p className="chart-insight">
+            {leadingStatus
+              ? `${leadingStatus.status} é a etapa mais frequente (${leadingStatus.quantity} de ${statusTotal}).`
+              : "Ainda não há pedidos neste recorte."}
+          </p>
+          <StatusBreakdown rows={report.statusBreakdown} />
+          <small>Um pedido corresponde a uma linha de item.</small>
+        </article>
+      )}
       <article className="panel ops-panel">
         <div className="panel-head">
           <div>
@@ -36,6 +69,12 @@ export function DashboardCharts({ report }: { report: DashboardReport }) {
             </p>
           </div>
         </div>
+        <p className="chart-insight">
+          {series
+            .reduce((sum, day) => sum + day.quantity, 0)
+            .toLocaleString("pt-BR")}{" "}
+          {unit} retiradas no período selecionado.
+        </p>
         <label>
           Unidade do gráfico
           <select value={unit} onChange={(e) => setSelected(e.target.value)}>
@@ -122,6 +161,11 @@ export function DashboardCharts({ report }: { report: DashboardReport }) {
             <p>Até 12 itens · {unit} · retiradas efetivas no período</p>
           </div>
         </div>
+        <p className="chart-insight">
+          {top[0]
+            ? `${top[0].item} teve o maior consumo: ${top[0].quantity} ${unit}.`
+            : "Ainda não há retiradas para comparar."}
+        </p>
         {top.length ? (
           <>
             <div className="dashboard-bars" role="list">

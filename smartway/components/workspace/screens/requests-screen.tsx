@@ -185,14 +185,18 @@ export function RequestsScreen({
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
             >
-              {[
-                "Todas",
-                "Pendente",
-                "Em análise",
-                "Aprovada",
-                "Entregue",
-                "Cancelada",
-              ].map((item) => (
+              {(page === "historico"
+                ? ["Todas", "Entregue", "Cancelada"]
+                : warehouseQueue
+                  ? ["Todas", "Aprovada", "Cancelamento solicitado"]
+                  : [
+                      "Todas",
+                      "Pendente",
+                      "Em análise",
+                      "Aprovada",
+                      "Cancelamento solicitado",
+                    ]
+              ).map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>

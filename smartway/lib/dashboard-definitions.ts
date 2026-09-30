@@ -118,6 +118,9 @@ export type DashboardFilter = {
   warehouse: string;
   status: string;
   priority: string;
+  lifecycle: "all" | "active" | "completed" | "warehouse";
+  requestFrom: string;
+  requestTo: string;
   page: number;
   pageSize: number;
   metric: Metric;
@@ -171,7 +174,10 @@ export function dashboardFilters(
     code = (q.get("code") || "").trim().toUpperCase(),
     warehouse = q.get("warehouse") || "",
     status = q.get("status") || "",
-    priority = q.get("priority") || "";
+    priority = q.get("priority") || "",
+    lifecycle = q.get("lifecycle") || "all",
+    requestFrom = q.get("requestFrom") || "",
+    requestTo = q.get("requestTo") || "";
   if ([block, requester, code, warehouse, sector].some((s) => s.length > 128))
     throw new ActionError("Filtro muito longo.");
   if (user.role === "lider" && block && block !== user.block)
@@ -186,6 +192,15 @@ export function dashboardFilters(
     (priority && !["Leve", "Moderado", "Urgente"].includes(priority))
   )
     throw new ActionError("Estado/urgência inválido.");
+  if (
+    !["all", "active", "completed", "warehouse"].includes(lifecycle) ||
+    (lifecycle === "warehouse" &&
+      !["admin", "almoxarifado"].includes(user.role)) ||
+    (requestFrom && !date(requestFrom)) ||
+    (requestTo && !date(requestTo)) ||
+    (requestFrom && requestTo && requestFrom > requestTo)
+  )
+    throw new ActionError("Filtro de requisições inválido.");
   const page = Number(q.get("page") || 1),
     pageSize = Number(q.get("pageSize") || 12),
     metric =
@@ -217,12 +232,20 @@ export function dashboardFilters(
     warehouse,
     status,
     priority,
+    lifecycle: lifecycle as DashboardFilter["lifecycle"],
+    requestFrom,
+    requestTo,
     page,
     pageSize,
     metric: metric as Metric,
   };
 }
-export function requestWhere(user: Account, f: DashboardFilter, period = true) {
+export function requestWhere(
+  user: Account,
+  f: DashboardFilter,
+  period = true,
+  lifecycle = true,
+) {
   const clauses: string[] = ["1=1"],
     params: (string | number)[] = [];
   if (user.role === "funcionario") {
@@ -245,7 +268,24 @@ export function requestWhere(user: Account, f: DashboardFilter, period = true) {
       clauses.push(col + "=?");
       params.push(value);
     }
-  if (period) {
+  if (lifecycle && f.lifecycle !== "all") {
+    clauses.push(
+      f.lifecycle === "completed"
+        ? "r.status IN ('Entregue','Cancelada')"
+        : f.lifecycle === "warehouse"
+          ? "r.status IN ('Aprovada','Cancelamento solicitado')"
+          : "r.status IN ('Pendente','Em análise','Aprovada','Cancelamento solicitado')",
+    );
+    if (f.requestFrom) {
+      clauses.push("r.updated_at>=?");
+      params.push(f.requestFrom);
+    }
+    if (f.requestTo) {
+      clauses.push("r.updated_at<DATE_ADD(?,INTERVAL 1 DAY)");
+      params.push(f.requestTo);
+    }
+  }
+  if (period && (!lifecycle || f.lifecycle === "all")) {
     clauses.push("r.created_at>=? AND r.created_at<DATE_ADD(?,INTERVAL 1 DAY)");
     params.push(f.from, f.to);
   }

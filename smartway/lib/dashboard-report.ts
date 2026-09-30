@@ -85,8 +85,12 @@ export async function dashboardDetail(
       `SELECT COUNT(*) total ${requestJoins} WHERE ${condition}`,
       params,
     );
+    const order =
+      f.lifecycle === "completed"
+        ? "r.updated_at DESC,r.id DESC"
+        : `CASE WHEN ${open} THEN 0 ELSE 1 END,FIELD(r.priority,'Urgente','Moderado','Leve'),r.created_at,r.id`;
     const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT r.*,p.code,p.name AS item,p.unit,u.name AS person,u.employee_no,b.name AS block,COALESCE(au.name,ap.name,'Não atribuído') AS actor,TIMESTAMPDIFF(SECOND,r.created_at,r.delivered_at)/3600 AS hours ${requestJoins} LEFT JOIN users au ON au.id=r.fulfilled_by LEFT JOIN users ap ON ap.id=r.approved_by WHERE ${condition} ORDER BY CASE WHEN ${open} THEN 0 ELSE 1 END,FIELD(r.priority,'Urgente','Moderado','Leve'),r.created_at,r.id LIMIT ${limit} OFFSET ${offset}`,
+      `SELECT r.*,p.code,p.name AS item,p.unit,u.name AS person,u.employee_no,b.name AS block,COALESCE(au.name,ap.name,'Não atribuído') AS actor,TIMESTAMPDIFF(SECOND,r.created_at,r.delivered_at)/3600 AS hours ${requestJoins} LEFT JOIN users au ON au.id=r.fulfilled_by LEFT JOIN users ap ON ap.id=r.approved_by WHERE ${condition} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`,
       params,
     );
     const records: DetailRecord[] = [];
@@ -165,7 +169,7 @@ export async function dashboardDetail(
     return { records, total: Number(count[0].total) };
   }
   if (movementMetric(f.metric)) {
-    const w = requestWhere(user, { ...f, warehouse: "" }, false),
+    const w = requestWhere(user, { ...f, warehouse: "" }, false, false),
       kind = { withdrawals: "saida", entries: "entrada", returns: "devolucao" }[
         f.metric as "withdrawals" | "entries" | "returns"
       ];
@@ -260,12 +264,16 @@ export async function dashboardReport(
     `SELECT COUNT(*) requests,COALESCE(SUM(${open}),0) pending,COALESCE(SUM(${open} AND r.priority='Urgente'),0) urgent,COALESCE(SUM(r.status<>'Cancelada' AND (r.priority='Urgente' OR COALESCE(r.justification,'')<>'')),0) anomalies ${requestJoins} WHERE ${w.sql}`,
     w.params,
   );
+  const [statusCounts] = await pool.execute<RowDataPacket[]>(
+    `SELECT r.status,COUNT(*) AS quantity ${requestJoins} WHERE ${w.sql} GROUP BY r.status`,
+    w.params,
+  );
   const deliveryWhere = requestWhere(user, f, false);
   const [delivery] = await pool.execute<RowDataPacket[]>(
     `SELECT AVG(TIMESTAMPDIFF(SECOND,r.created_at,r.delivered_at)/3600) hours,COUNT(*) count ${requestJoins} WHERE ${deliveryWhere.sql} AND r.delivered_at>=? AND r.delivered_at<DATE_ADD(?,INTERVAL 1 DAY) AND r.delivered_at>=r.created_at`,
     [...deliveryWhere.params, f.from, f.to],
   );
-  const mw = requestWhere(user, { ...f, warehouse: "" }, false),
+  const mw = requestWhere(user, { ...f, warehouse: "" }, false, false),
     mp = [...mw.params, f.from, f.to, ...(f.warehouse ? [f.warehouse] : [])];
   const [daily] = await pool.execute<RowDataPacket[]>(
     `SELECT DATE_FORMAT(m.created_at,'%Y-%m-%d') date,p.unit,m.kind,SUM(m.quantity) quantity FROM stock_movements m JOIN parts p ON p.id=m.part_id JOIN warehouses w ON w.id=m.warehouse_id LEFT JOIN requests r ON r.id=m.request_id LEFT JOIN users u ON u.id=r.requester_id LEFT JOIN blocks b ON b.id=m.block_id WHERE ${mw.sql} AND m.created_at>=? AND m.created_at<DATE_ADD(?,INTERVAL 1 DAY) ${f.warehouse ? "AND w.name=?" : ""} AND m.kind IN ('saida','entrada','devolucao') GROUP BY date,p.unit,m.kind ORDER BY date`,
@@ -530,9 +538,24 @@ export async function dashboardReport(
           .map((r) => r.code),
       ).size,
       awaitingReview: proposals.filter((c) => c.action !== "observe").length,
+      riskSummary: {
+        empty: rows.filter((r) => r.available <= 0).length,
+        critical: rows.filter(
+          (r) => r.available > 0 && r.available < r.configuredMinimum,
+        ).length,
+        adequate: rows.filter(
+          (r) => r.available > 0 && r.available >= r.configuredMinimum,
+        ).length,
+      },
     },
     title:
-      q.get("planning") === "distribution"
+      f.lifecycle === "completed"
+        ? "Histórico de requisições"
+        : f.lifecycle === "warehouse"
+          ? "Fila de separação"
+          : f.lifecycle === "active"
+            ? "Requisições em andamento"
+            : q.get("planning") === "distribution"
         ? "Recomendação de estoque"
         : f.view === "compra"
           ? "Compra preditiva"
@@ -573,6 +596,10 @@ export async function dashboardReport(
       code: String(r.code),
       item: String(r.item),
       unit: String(r.unit),
+      quantity: Number(r.quantity),
+    })),
+    statusBreakdown: statusCounts.map((r) => ({
+      status: String(r.status),
       quantity: Number(r.quantity),
     })),
     transfers: base.transfers
@@ -620,7 +647,12 @@ export async function dashboardReport(
       },
     ],
     methodology: {
-      period: f.from + " a " + f.to,
+      period:
+        f.lifecycle === "all"
+          ? f.from + " a " + f.to
+          : f.requestFrom || f.requestTo
+            ? (f.requestFrom || "início") + " a " + (f.requestTo || "hoje")
+            : "Todo o histórico",
       scope,
       filters: f,
       generatedAt: base.generatedAt,

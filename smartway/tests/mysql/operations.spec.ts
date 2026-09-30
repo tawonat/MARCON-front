@@ -519,7 +519,7 @@ test("estoque e planejamento responsivos com MySQL e leitor sem câmera", async 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/warehouse/dashboard?view=compra");
   await expect(
-    page.getByRole("heading", { name: "Consumo e planejamento" }),
+    page.getByRole("heading", { name: "Compra preditiva" }),
   ).toBeVisible();
   await page.locator('.dashboard-popover summary').click();
   await expect(page.getByRole('button', {name:'Planilha', exact:true})).toBeVisible();
@@ -528,6 +528,7 @@ test("estoque e planejamento responsivos com MySQL e leitor sem câmera", async 
       () => document.documentElement.scrollWidth <= innerWidth + 1,
     ),
   ).toBeTruthy();
+  await page.getByText("Ver tabela detalhada de estoque e previsão").click();
   for (const width of [320, 390, 768, 1024, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     expect(
