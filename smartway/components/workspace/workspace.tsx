@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { BrandLogo } from "@/app/components/brand-logo";
 import { useDemoStore } from "./demo-store";
 import { useEmployeeName, useEmployeeBlock } from "./employee-identity";
 import { badge } from "./ui";
@@ -226,12 +227,14 @@ export default function Workspace({
   }, []);
   useEffect(() => {
     if (!drawerOpen) return;
-    sidebar.current?.querySelector<HTMLElement>("button")?.focus();
+    sidebar.current?.querySelector<HTMLElement>("button.close")?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") setDrawerOpen(false);
       if (event.key !== "Tab" || !sidebar.current) return;
       const focusable = [
-        ...sidebar.current.querySelectorAll<HTMLElement>("button"),
+        ...sidebar.current.querySelectorAll<HTMLElement>("a, button"),
       ];
       if (event.shiftKey && document.activeElement === focusable[0]) {
         event.preventDefault();
@@ -246,6 +249,7 @@ export default function Workspace({
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
       trigger?.focus();
     };
   }, [drawerOpen]);
@@ -455,10 +459,17 @@ export default function Workspace({
         aria-label="Menu principal"
       >
         <div className="brand">
-          <div>
-            <strong>MARCON</strong>
-            <small>Gestão de materiais</small>
-          </div>
+          <Link
+            href={`/inicio/${role}`}
+            className="sidebar-brand-link"
+            onClick={() => setDrawerOpen(false)}
+          >
+            <BrandLogo compact decorative />
+            <span>
+              <strong>SMARTWAY</strong>
+              <small>Portal interno</small>
+            </span>
+          </Link>
           <button
             className="icon-button close"
             onClick={() => setDrawerOpen(false)}
@@ -501,9 +512,21 @@ export default function Workspace({
       </aside>
       <div className="main">
         <header className="topbar">
-          <div className="top-left">
+          <div className="topbar-identity">
             <Link
-              className="icon-button"
+              href={`/inicio/${role}`}
+              className="topbar-brand"
+              aria-label="Smartway — página inicial"
+            >
+              <BrandLogo compact decorative />
+              <strong>SMARTWAY</strong>
+            </Link>
+            <span className="topbar-divider" aria-hidden="true" />
+            <span className="topbar-section">{active.label}</span>
+          </div>
+          <div className="topbar-actions">
+            <Link
+              className="icon-button topbar-back"
               aria-label="Voltar"
               title="Voltar"
               href={backHref}
@@ -519,29 +542,22 @@ export default function Workspace({
             >
               <Menu size={22} />
             </button>
-            <span className="workspace-location">
-              <span>
-                Área de trabalho <b>/</b>{" "}
-              </span>
-              <strong>{active.label}</strong>
-            </span>
-          </div>
-          <div className="role-control">
-            <strong>{current.name}</strong>
-            <Link href="/profile" className="workspace-profile">
-              Editar perfil
-            </Link>
-            <form action="/api/logout" method="post">
-              <button
-                type="submit"
-                className="workspace-logout"
-                aria-label="Sair da conta"
-                title="Sair da conta"
-              >
-                <LogOut size={18} aria-hidden="true" />
-                <span>Sair da conta</span>
-              </button>
-            </form>
+            <div className="role-control">
+              <Link href="/profile" className="workspace-profile">
+                Editar perfil
+              </Link>
+              <form action="/api/logout" method="post">
+                <button
+                  type="submit"
+                  className="workspace-logout"
+                  aria-label="Sair da conta"
+                  title="Sair da conta"
+                >
+                  <LogOut size={18} aria-hidden="true" />
+                  <span>Sair da conta</span>
+                </button>
+              </form>
+            </div>
           </div>
         </header>
         <main className="content" id="workspace-content" tabIndex={-1}>

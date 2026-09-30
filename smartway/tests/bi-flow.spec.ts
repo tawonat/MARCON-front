@@ -99,3 +99,19 @@ test("compra preditiva explica consumo e estado da peça em pop-up", async ({
   await dialog.getByRole("button", { name: /Fechar/ }).click();
   await expect(dialog).not.toBeVisible();
 });
+
+test("topbar e rolagem ficam contidos no painel em telas estreitas", async ({ page }) => {
+  await login(page, "rafael@marcon.demo");
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto("/admin/dashboard");
+    await expect(page.getByRole("link", { name: "Smartway — página inicial" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.evaluate(() => document.querySelector(".main")!.scrollHeight >= document.querySelector(".main")!.clientHeight)).toBe(true);
+  }
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await expect(page.getByRole("navigation", { name: "Navegação principal" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Abrir menu" })).toBeFocused();
+});

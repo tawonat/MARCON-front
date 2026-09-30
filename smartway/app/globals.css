@@ -3954,6 +3954,205 @@ textarea {
   align-items: center;
   gap: 7px;
 }
+
+/* Workspace follows the same brand system as login and the welcome page. */
+.shell {
+  height: 100dvh;
+  min-height: 0;
+  max-width: 100vw;
+  overflow: clip;
+  background: var(--canvas);
+}
+.main {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+.content {
+  width: min(100%, 1560px);
+  margin-inline: auto;
+  min-width: 0;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  flex: none;
+  width: 100%;
+  min-height: 76px;
+  padding: 12px clamp(18px, 3vw, 42px);
+  border-bottom: 1px solid #ffffff20;
+  background: #0f2038;
+  color: #fff;
+  box-shadow: 0 6px 22px #0f203817;
+}
+.topbar-identity,
+.topbar-actions,
+.topbar-brand,
+.sidebar-brand-link {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.topbar-identity {
+  gap: 16px;
+}
+.topbar-brand {
+  flex: none;
+  gap: 10px;
+  color: #fff;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.topbar-brand:hover {
+  color: #d7e2ff;
+}
+.topbar-divider {
+  width: 1px;
+  height: 26px;
+  flex: none;
+  background: #ffffff35;
+}
+.topbar-section {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #c5d4f1;
+  font-size: 13px;
+}
+.topbar-actions {
+  gap: 10px;
+  flex: none;
+}
+.topbar .icon-button {
+  color: #d8e5ff;
+  border-color: #ffffff38;
+  background: #ffffff12;
+}
+.topbar .icon-button:hover {
+  background: #ffffff28;
+  color: #fff;
+}
+.topbar .role-control {
+  gap: 9px;
+  color: #fff;
+}
+.topbar .workspace-profile,
+.topbar .workspace-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid #d4def0;
+  border-radius: 8px;
+  background: #fff;
+  color: #1d419c;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+.topbar .workspace-profile:hover,
+.topbar .workspace-logout:hover {
+  background: #eaf0ff;
+  text-decoration: none;
+}
+.sidebar {
+  height: 100dvh;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.sidebar .brand {
+  min-height: 76px;
+  height: 76px;
+}
+.sidebar-brand-link {
+  gap: 10px;
+  text-decoration: none;
+}
+.sidebar-brand-link strong {
+  color: #1d419c;
+  font-size: 12px;
+}
+.sidebar-brand-link small {
+  color: #64748b;
+}
+.sidebar nav {
+  min-width: 0;
+}
+.sidebar .nav-link {
+  min-width: 0;
+}
+.table-wrap,
+.ops-scroll,
+.map-viewport-scroll {
+  max-width: 100%;
+  overscroll-behavior: contain;
+}
+.dashboard-dialog {
+  overscroll-behavior: contain;
+}
+@media (max-width: 800px) {
+  .topbar {
+    min-height: 66px;
+  }
+  .topbar-actions {
+    margin-left: auto;
+  }
+  .topbar-section {
+    max-width: min(28vw, 200px);
+  }
+}
+@media (max-width: 639px) {
+  .topbar {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 9px 12px;
+  }
+  .topbar-identity {
+    gap: 7px;
+  }
+  .topbar-brand {
+    gap: 6px;
+    font-size: 11px;
+  }
+  .topbar-divider,
+  .topbar-section,
+  .topbar-back {
+    display: none;
+  }
+  .topbar-actions {
+    gap: 6px;
+  }
+  .topbar .icon-button {
+    width: 42px;
+    height: 42px;
+  }
+  .topbar .workspace-profile,
+  .topbar .workspace-logout {
+    min-height: 42px;
+    padding: 8px 10px;
+  }
+  .topbar .workspace-profile {
+    font-size: 11px;
+  }
+  .topbar .workspace-logout span {
+    display: none;
+  }
+  .main {
+    scrollbar-gutter: auto;
+  }
+}
 .history-panel .dashboard-record {
   background: #f8fafc;
   border-left: 4px solid #64748b;
